@@ -1004,14 +1004,17 @@ describe('windowed states when the history does not fit', () => {
     expect(out.stats.requests).toBe(seen.length);
   });
 
-  it('keeps a call that no window can fit, instead of throwing', async () => {
+  it('scores a call no window can fit from the transcript, instead of throwing', async () => {
     const messages = long(5);
     const seen: Seen[] = [];
     const out = await compact(messages, fakeJev(() => 0.1, seen), { ...options, maxStateTokens: 200, goal: 'g'.repeat(5_000) });
     expect(seen.length).toBe(0);
     expect(out.stats.stateStage).toMatch(/unasked:\d+/);
-    expect(out.decisions.every((d) => d.action === 'keep')).toBe(true);
-    expect(out.messages).toEqual(messages);
+    const candidates = collectToolCalls(messages, options.preserveRecentMessages).filter((call) => !call.pinned);
+    const scores = algorithmicAnswers(candidates, collectToolCalls(messages, options.preserveRecentMessages));
+    expect(out.decisions.filter((d) => d.reason !== 'pinned').map((d) => d.keepResult)).toEqual(
+      candidates.map((call) => scores.get(call.id)!.keepResult),
+    );
   });
 });
 
