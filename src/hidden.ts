@@ -1,5 +1,4 @@
-import { marker, placeholder } from './brand.js';
-import { sliceSurrogateSafe } from './state.js';
+import { placeholder } from './brand.js';
 import type { Message } from './types.js';
 
 /**
@@ -260,24 +259,17 @@ export function dropTransientReminders<M extends Message>(messages: readonly M[]
  * `messages`: a tool result's text, or a prompt row's text. A prompt row is
  * found by identity, else by its text. Content whose anchor is gone goes to
  * the nearest earlier result that was placed; with none, it is counted lost.
- * Content after a result in `cutIds` keeps its first `headChars` and a note.
- * `chars` is what the fold added. Messages that change are copies; the input
- * is not modified.
+ * Content goes back whole, even after a cut result: skill bodies, prompts typed
+ * mid-turn and hook context make up nearly all of it, and recall cannot read
+ * them. `chars` is what the fold added. Messages that change are copies; the
+ * input is not modified.
  */
 export function foldHiddenContent<M extends Message>(
   messages: readonly M[],
   hidden: readonly HiddenContent[],
-  options: { cutIds?: ReadonlySet<string>; headChars?: number } = {},
 ): { messages: M[]; folded: number; lost: number; chars: number } {
   const out = [...messages];
   let chars = 0;
-  // Content after a result the compaction cut is cut the same way.
-  const pieceOf = (anchor: HiddenAnchor, text: string): string => {
-    const head = options.headChars ?? 0;
-    if (!('toolUseId' in anchor) || !options.cutIds?.has(anchor.toolUseId) || text.length <= head + 120) return text;
-    const kept = sliceSurrogateSafe(text, 0, head);
-    return `${kept}\n${marker(`cut ${text.length - kept.length} chars of content attached here`)}`;
-  };
   const where = new Map<string, number>();
   out.forEach((message, index) => {
     for (const result of message.toolResults ?? []) where.set(result.tool_use_id, index);
@@ -307,8 +299,7 @@ export function foldHiddenContent<M extends Message>(
   let folded = 0;
   let lost = 0;
   let lastResult: { index: number; id: string } | undefined;
-  for (const { anchor, text: whole } of hidden) {
-    const text = pieceOf(anchor, whole);
+  for (const { anchor, text } of hidden) {
     if ('toolUseId' in anchor && where.has(anchor.toolUseId)) {
       lastResult = { index: where.get(anchor.toolUseId)!, id: anchor.toolUseId };
       appendToResult(lastResult.index, lastResult.id, text);

@@ -941,9 +941,8 @@ export const register: Register = (on: On, options: PluginOptions) => {
         for (const line of decisionLogLines(result)) debugLog($, line);
         // Rows go back without handles, which costs them their hidden content:
         // read it from the API form and fold it back in as text, before the
-        // size guards so they measure what is returned. Content after a result
-        // Jev cut is cut the same way. Transient reminders an earlier fold left
-        // in the rows go first.
+        // size guards so they measure what is returned. Transient reminders an
+        // earlier fold left in the rows go first.
         const cleaned = dropTransientReminders(messages);
         let returned = cleaned.messages;
         const afterCleaning = result.stats.charsAfter - cleaned.chars;
@@ -951,13 +950,7 @@ export const register: Register = (on: On, options: PluginOptions) => {
         let hiddenNote = cleaned.chars > 0 ? `; ${cleaned.chars} chars of stale reminders dropped` : '';
         try {
           const view = await $.session.messages({ as: 'api' });
-          const cutIds = new Set(
-            result.decisions.filter((d) => d.action !== 'keep' && d.reason !== 'pinned').map((d) => d.id),
-          );
-          const fold = foldHiddenContent(cleaned.messages, hiddenContent(event.messages, view as ApiMessage[]), {
-            cutIds,
-            headChars: resolveOptions(planned).truncateHeadChars,
-          });
+          const fold = foldHiddenContent(cleaned.messages, hiddenContent(event.messages, view as ApiMessage[]));
           returned = fold.messages;
           measured = { ...result, stats: { ...result.stats, charsAfter: afterCleaning + fold.chars } };
           hiddenNote += `; hidden content: ${fold.folded} folded back (${fold.chars} chars)${
