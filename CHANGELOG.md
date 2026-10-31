@@ -17,7 +17,7 @@ All notable changes to this fork are documented here. The format follows
 
 - An input that an earlier compaction cut to a stub is left as it is, and not
   cut again at each compaction.
-- `recall` search skips runs of encoded data (1000 characters or more that mix
+- `recall` search skips runs of encoded data (long base64-like runs that mix
   digits and both cases). A short word such as `max` matched inside base64 by
   chance, and that entry ranked first.
 - `<side-sessions-event>`, `<ci-monitor-event>` and a stopped turn's

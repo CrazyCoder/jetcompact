@@ -160,15 +160,18 @@ const ENCODED_RUN = /[A-Za-z0-9+/_-]{60,}={0,2}(?:\r?\n[A-Za-z0-9+/_-]{60,}={0,2
 const ENCODED_MIN_CHARS = 1_000;
 /** Share of a run in lowercase words of five or more letters above which it is names, not data. */
 const ENCODED_MAX_WORDS = 0.25;
+/** Share of slashes above which a run is paths: random base64 holds about 1.6%. */
+const ENCODED_MAX_SLASHES = 0.05;
 
 /**
  * Whether a run looks encoded: it mixes digits and both cases, holds few
- * lowercase words, which paths and identifiers are made of, and all its lines
- * but the last have one width.
+ * lowercase words and few slashes, which paths and identifiers are made of, and
+ * all its lines but the last have one width.
  */
 function isEncoded(run: string): boolean {
   if (run.length < ENCODED_MIN_CHARS || !/\d/.test(run) || !/[a-z]/.test(run) || !/[A-Z]/.test(run)) return false;
   if ((run.match(/[a-z]{5,}/g)?.join('').length ?? 0) / run.length > ENCODED_MAX_WORDS) return false;
+  if ((run.match(/\//g)?.length ?? 0) / run.length > ENCODED_MAX_SLASHES) return false;
   const lines = run.split(/\r?\n/);
   return lines.slice(0, -1).every((line) => line.length === lines[0]!.length);
 }

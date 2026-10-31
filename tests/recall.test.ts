@@ -40,7 +40,8 @@ describe('recall query over encoded data', () => {
   it('keeps long hex, identifiers, short runs and lists of paths searchable', () => {
     const paths = Array.from({ length: 20 }, (_, i) => `/home/Serge/projects/Project${i}/src/VeryLongDirectoryName/MaxComponent${'x'.repeat(i)}`);
     const sameWidth = Array.from({ length: 20 }, (_, i) => `/workspace/Project${String(i).padStart(2, '0')}/AuthenticationAndAuthorizationIntegrationTests/MaxRetryConfiguration`);
-    for (const text of ['abc123max'.repeat(200), 'getMaxRetryCount'.repeat(100), encoded(500), paths.join('\n'), sameWidth.join('\n')]) {
+    const tempDirs = Array.from({ length: 20 }, (_, i) => `/mnt/c/Users/Serge/AppData/Local/Temp/max0e840-e29b-41d4-a716-0000000000${String(i).padStart(2, '0')}`);
+    for (const text of ['abc123max'.repeat(200), 'getMaxRetryCount'.repeat(100), encoded(500), paths.join('\n'), sameWidth.join('\n'), tempDirs.join('\n')]) {
       expect(runRecall(entries(text), { query: 'max' })).toMatch(/^2 match/);
     }
   });
