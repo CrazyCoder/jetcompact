@@ -705,6 +705,21 @@ describe('compact', () => {
       expect(again.output.messages[0]!.text).toMatch(/1 older tool calls reduced to stubs/);
     });
 
+    it('counts an old stub with an uncut result apart from a result cut in this compaction', async () => {
+      const stub = { input_head: 'x', note: '[jetcompact truncated 900 chars of this tool input]' };
+      const messages = [
+        message('user', 'Fix it.'),
+        call('c1', 'Edit', stub, 'updated'),
+        result('c1', 'updated'),
+        call('c2', 'Read', { file_path: 'a.ts' }, big),
+        result('c2', big),
+        message('assistant', 'Done.'),
+        message('user', 'thanks'),
+      ];
+      const { output } = await run(messages, 0.1, { recallNotes: true });
+      expect(output.messages[0]!.text).toMatch(/1 tool results cut to their first characters, 1 older tool calls reduced to stubs/);
+    });
+
     it('takes an input for a stub only with the note this plugin writes', async () => {
       const lookalike = { input_head: big, note: 'Keep this explanation' };
       const { output, questions } = await run(history(lookalike, 'updated'));

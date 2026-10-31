@@ -957,7 +957,6 @@ export async function compact(
   const kept = aged.messages;
   const cutEarlier = (decision: CallDecision, side: 'resultWasCut' | 'inputWasCut'): boolean =>
     decision.reason === 'kept' && sizes.get(decision.id)?.[side] === true;
-  const stayedStubs = decisions.filter((d) => cutEarlier(d, 'inputWasCut')).length;
   const cut = {
     resultsDropped: count(decisions, 'result_dropped'),
     callsDropped: count(decisions, 'call_dropped'),
@@ -967,8 +966,9 @@ export async function compact(
   // What this compaction left as an earlier one cut it is still cut for the note.
   const noted = {
     ...cut,
-    resultsDropped: cut.resultsDropped + decisions.filter((d) => cutEarlier(d, 'resultWasCut')).length - stayedStubs,
-    callsStubbed: cut.callsStubbed + stayedStubs,
+    resultsDropped:
+      cut.resultsDropped + decisions.filter((d) => cutEarlier(d, 'resultWasCut') && !cutEarlier(d, 'inputWasCut')).length,
+    callsStubbed: cut.callsStubbed + decisions.filter((d) => cutEarlier(d, 'inputWasCut')).length,
   };
   const whole = decisions.filter((d) => !cutEarlier(d, 'resultWasCut'));
   const note = resolved.recallNotes ? compactionNote(noted, cutDocuments(history, calls, whole)) : undefined;
