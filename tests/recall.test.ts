@@ -60,6 +60,12 @@ describe('recall query ranking', () => {
     expect(runRecall(entries, { query: 'cache timeout' })).toContain('cache timeout was too low');
   });
 
+  it('shows the matching lines of words split over two lines', () => {
+    n = 0;
+    const entries = [reply('intro\nmore\nmore\nmore\ncache\ntimeout\nend')];
+    expect(runRecall(entries, { query: 'cache timeout' })).toContain('  cache');
+  });
+
   it('ranks a word above the same letters inside another word, and still finds those', () => {
     n = 0;
     const entries = [reply('threshold threshold threshold'), reply('hold it')];

@@ -243,7 +243,8 @@ function search(entries: readonly Entry[], query: string): { hits: Entry[]; mark
   const terms = words.map((w) => new RegExp(escapeRegex(w), 'gi'));
   const atStart = words.map((w) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(w)}`, 'giu'));
   const asked = query.trim().split(/\s+/);
-  const phrase = asked.length > 1 ? new RegExp(asked.map(escapeRegex).join('\\s+'), 'i') : undefined;
+  // On one line: that is where the snippet looks for it.
+  const phrase = asked.length > 1 ? new RegExp(asked.map(escapeRegex).join('[ \\t]+'), 'i') : undefined;
   const lengths = docs.map((doc) => doc.split(/\s+/).length);
   const avg = lengths.reduce((a, b) => a + b, 0) / Math.max(docs.length, 1);
   const df = terms.map((term) => docs.filter((doc) => doc.search(term) !== -1).length);
