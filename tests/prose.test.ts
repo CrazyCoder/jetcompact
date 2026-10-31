@@ -75,6 +75,24 @@ describe('splitOldProse', () => {
     }
   });
 
+  it('leaves a call still waiting for its result on the kept side', () => {
+    const waiting = msg('assistant', '', {
+      toolUses: [{ tool_use_id: 'wait', tool: 'Bash', input: { command: 'npm test' } }],
+    });
+    const prompts = [1, 2, 3].map((n) => msg('user', `typed ${n}`));
+    const messages = [...history(4), msg('user', 'run them'), waiting, ...prompts];
+    const split = splitOldProse(messages, 2)!;
+    expect(split.recent).toContain(waiting);
+  });
+
+  it('does not let a call abandoned long ago hold the cut back', () => {
+    const abandoned = msg('assistant', '', {
+      toolUses: [{ tool_use_id: 'gone', tool: 'Bash', input: { command: 'sleep 9' } }],
+    });
+    const messages = [msg('user', 'first'), abandoned, ...history(4)];
+    expect(splitOldProse(messages, 2)!.old).toContain(abandoned);
+  });
+
   it('moves the cut back a turn when a result points across it', () => {
     const messages = history(4);
     // turn 3's result answers turn 2's call

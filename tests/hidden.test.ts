@@ -294,6 +294,13 @@ describe('hidden content', () => {
     ]);
   });
 
+  it('keeps a prompt whole when it quotes the words the host wraps it in', () => {
+    const typed = `Explain this:\n${queued('example only')}\nKeep the final instruction.`;
+    const { prompts, rest } = takeMidTurnPrompts([{ anchor: { toolUseId: 'r1' }, text: queued(typed) }]);
+    expect(prompts.map((p) => p.text)).toEqual([typed]);
+    expect(rest).toEqual([]);
+  });
+
   it('puts each prompt in a row of its own after its anchor, and the last row when the anchor is gone', () => {
     const { rows } = session();
     const out = withPromptRows(rows, [

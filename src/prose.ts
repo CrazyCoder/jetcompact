@@ -74,11 +74,29 @@ function toolUseIds(messages: readonly Message[]): Set<string> {
 }
 
 /**
+ * The calls still waiting for a result: those with none in the newest run of
+ * assistant rows holding such calls. An older call without a result was
+ * abandoned, and must not hold the cut back for the rest of the session.
+ */
+function pendingCalls(messages: readonly Message[]): Set<string> {
+  const answered = new Set(messages.flatMap((message) => (message.toolResults ?? []).map((r) => r.tool_use_id)));
+  const pending = new Set<string>();
+  for (const message of [...messages].reverse()) {
+    if (message.role !== 'assistant') continue;
+    const waiting = message.toolUses.filter((use) => !answered.has(use.tool_use_id));
+    if (waiting.length === 0) break;
+    for (const use of waiting) pending.add(use.tool_use_id);
+  }
+  return pending;
+}
+
+/**
  * Splits at the start of the `recentTurns`-th last user turn. The cut always
  * falls on a user turn, so a tool_use and its tool_result (which follows in
  * the same turn) end on the same side; should a result still reference a call
- * on the other side, the cut moves back one turn. Undefined when the history
- * has no more than `recentTurns` turns.
+ * on the other side, or a call before the cut still wait for its result, the
+ * cut moves back one turn. Undefined when the history has no more than
+ * `recentTurns` turns.
  */
 export function splitOldProse(
   messages: readonly Message[],
@@ -89,14 +107,15 @@ export function splitOldProse(
   messages.forEach((message, index) => {
     if (isUserTurn(message)) starts.push(index);
   });
+  const pending = pendingCalls(messages);
   for (let k = starts.length - keep; k >= 1; k--) {
     const cut = starts[k]!;
     const old = messages.slice(0, cut);
     const recent = messages.slice(cut);
     const oldUses = toolUseIds(old);
-    const crossing = recent.some((message) =>
-      (message.toolResults ?? []).some((result) => oldUses.has(result.tool_use_id)),
-    );
+    const crossing =
+      [...pending].some((id) => oldUses.has(id)) ||
+      recent.some((message) => (message.toolResults ?? []).some((result) => oldUses.has(result.tool_use_id)));
     if (!crossing) return { old, recent };
   }
   return undefined;

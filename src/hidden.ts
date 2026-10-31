@@ -254,9 +254,13 @@ export function dropTransientReminders<M extends Message>(messages: readonly M[]
   return { messages: out, chars };
 }
 
-/** How the host hands the model a prompt typed mid-turn; the capture is the prompt. */
+/**
+ * How the host hands the model a prompt typed mid-turn; the capture is the
+ * prompt. The closing line ends a piece, so one quoted inside the prompt does
+ * not end it.
+ */
 const MID_TURN =
-  /(?:<system-reminder>\s*)?The user sent a new message while you were working:\n([\s\S]*?)\n\nThis is how Claude Code surfaces messages the user sends mid-turn[^\n]*(?:\s*<\/system-reminder>)?/g;
+  /(?:<system-reminder>\s*)?The user sent a new message while you were working:\n([\s\S]*?)\n\nThis is how Claude Code surfaces messages the user sends mid-turn[^\n]*(?:\s*<\/system-reminder>)?(?=\s*$|\n\n)/g;
 
 /**
  * Separates the prompts the user typed mid-turn from the rest of `hidden`.
