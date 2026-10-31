@@ -189,6 +189,8 @@ describe('recall in the hook', () => {
 describe('recall requests', () => {
   it('takes what the model sends, loosely', () => {
     expect(recallRequest({ query: 'x', page: 2 })).toEqual({ query: 'x', page: 2 });
+    expect(recallRequest({ query: 'x', who: 'user' })).toEqual({ query: 'x', who: 'user' });
+    expect(recallRequest({ query: 'x', who: 'someone' })).toEqual({ query: 'x' });
     expect(recallRequest({ expand: 'toolu_a' })).toEqual({ expand: ['toolu_a'] });
     expect(recallRequest({ expand: ['#3', 4, null], offset: 100 })).toEqual({ expand: ['#3', 4], offset: 100 });
     expect(recallRequest({ range: ['2', 5] })).toEqual({ range: [2, 5] });
