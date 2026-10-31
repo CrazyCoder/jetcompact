@@ -393,7 +393,7 @@ JetCompact adds is listed under [Added in JetCompact](#added-in-jetcompact).
 | Host notices / old prose | Kept | Kept | Trimmed / optional digest | Trimmed / digest by default |
 | Transcript output | Decision dump | Same | Same | One toast; debug log and log file |
 | Hidden content after compaction | Kept on untouched rows (`--resume` reloads the old history) | Lost (no handles) | Lost | Folded back as text |
-| Failed Jev request | Whole compaction falls back | Same | Same | Its calls kept, rest applied |
+| Failed Jev request | Whole compaction falls back | Same | Same | Its calls scored from the transcript, rest applied |
 | Decision provider | Jev | Jev (any System One endpoint) | Same | Same + OpenAI Decisions, or rules with no model |
 | What was cut | Gone from the conversation | Same | Same | `recall` tool reads it back from the transcript |
 | Model told what was cut | No | No | No | Cut notes, digest header and one note per compaction point at recall |

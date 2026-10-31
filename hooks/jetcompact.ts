@@ -457,7 +457,7 @@ export function summarize(result: CompactResult): string {
     parts.join(', ') || 'no tool calls'
   }; state ~${stats.stateTokens} tokens (${stats.stateStage}) in ${stats.requests} request(s)${
     stats.requestsFailed > 0
-      ? `, ${stats.requestsFailed} failed (calls kept${stats.requestError ? `; ${stats.requestError}` : ''})`
+      ? `, ${stats.requestsFailed} failed (calls scored from the transcript${stats.requestError ? `; ${stats.requestError}` : ''})`
       : ''
   }`;
 }

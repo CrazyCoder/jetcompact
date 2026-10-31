@@ -520,7 +520,7 @@ export class CompactionInterrupted extends Error {
  * Asks every batch with at most `limit` requests in flight. A 429 or 5xx is
  * retried once; after a failure every request would share (401, 403, no
  * answer) no further request is started. Resolves the answers that came back
- * and the failures; a failed batch's calls get no answer, so they are kept.
+ * and the failures; a failed batch's calls get no answer.
  */
 async function askAll(
   asker: JevAsker,
@@ -808,7 +808,7 @@ function tooLarge(error: unknown): boolean {
  * leaves the rest of the history out. Relevance of an old call depends mostly
  * on the goal and the recent turns, which every window carries. A call whose
  * window cannot fit even alone is returned in `unasked`; it gets no answer and
- * therefore stays, like any call Jev was not asked about.
+ * is scored from the transcript, like the calls of a failed request.
  */
 export function stateGroups(
   messages: readonly Message[],
@@ -931,6 +931,11 @@ export async function compact(
     // Nothing answered: let the caller fall back with the reason.
     if (jobs.length > 0 && asked.failures.length === jobs.length) throw asked.failures[0];
     answers = new Map([...noQuestion, ...asked.answers]);
+    // A call left without an answer is scored from the transcript: a blanket
+    // score would put it above every call the model did answer for.
+    if (questioned.some((call) => !answers.has(call.id))) {
+      answers = new Map([...algorithmicAnswers(candidates, calls), ...answers]);
+    }
     requestsFailed = asked.failures.length;
     const failure = asked.failures[0];
     if (failure !== undefined) requestError = failure instanceof Error ? failure.message : String(failure);

@@ -156,7 +156,8 @@ stage was needed, and the number of requests.
    or 5xx is retried once after `RETRY_DELAY_MS` (pass `sleep` in the fourth
    argument of `compact`; without it the retry goes out at once). After a 401,
    403 or a request with no answer, no further request starts. The calls of a
-   request that still failed are kept and counted in `stats.requestsFailed`.
+   request that still failed are scored by `algorithmicAnswers`, like a call
+   with no answer, and counted in `stats.requestsFailed`.
 6. Decisions per call. Jev's scores are compressed (keepCall rarely exceeds
    0.3), so the default `rank` mode ranks them instead of applying an absolute
    threshold: results are kept verbatim best-`keepResult` first within
@@ -176,4 +177,5 @@ stage was needed, and the number of requests.
 
 A missing key, or Jev failing every request (an error, a malformed answer),
 throws; the caller (or the Claude Code hook) decides what to fall back to. When
-only some requests fail, their calls are kept and the rest is applied.
+only some requests fail, their calls are scored from the transcript and the rest
+is applied.

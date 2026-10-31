@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  algorithmicAnswers,
   collectToolCalls,
   compact,
+  estimateTokens,
   fitState,
   JevRequestError,
   JevTransportError,
@@ -114,16 +116,25 @@ describe('Jev request policy', () => {
     expect(out.stats.requestsFailed).toBe(0);
   });
 
-  it('keeps the calls of a request that still fails and uses the rest', async () => {
+  it('scores the calls of a request that still fails from the transcript and uses the rest', async () => {
     const messages = transcript(4);
     const j = jev((id) => (id === 't3' ? new JevRequestError(500, 'down') : 0.1));
     const out = await compact(messages, j.asker, oneCallPerRequest(messages), noWait);
     expect(j.attempts.get('t3')).toBe(2);
-    const byId = new Map(out.decisions.map((d) => [d.id, d.action]));
-    expect(byId.get('t3')).toBe('keep');
-    expect(byId.get('t2')).toBe('stub_call');
+    const byId = new Map(out.decisions.map((d) => [d.id, d]));
+    expect(byId.get('t3')!.keepResult).toBeCloseTo(algorithmicAnswers(collectToolCalls(messages, 1)).get('t3')!.keepResult);
+    expect(byId.get('t2')!.action).toBe('stub_call');
     expect(out.stats.requestsFailed).toBe(1);
     expect(out.stats.requestError).toBe('Jev request failed (500): down');
+  });
+
+  it('does not let a failed call take the rank budget from a call the model wants kept', async () => {
+    const messages = transcript(2);
+    const j = jev((id) => (id === 't1' ? new JevRequestError(500, 'down') : 0.9));
+    const budget = estimateTokens(messages[2]!.toolResults![0]!.text);
+    const options = { ...oneCallPerRequest(messages), keepMode: 'rank', keepResultTokens: budget, keepCallTokens: 0 } as const;
+    const out = await compact(messages, j.asker, options, noWait);
+    expect(out.decisions.map((d) => d.action)).toEqual(['stub_call', 'keep']);
   });
 
   it('starts no more requests after a 401/403 or no answer, and throws when nothing was answered', async () => {

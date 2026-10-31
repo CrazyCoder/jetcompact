@@ -15,6 +15,9 @@ All notable changes to this fork are documented here. The format follows
 
 ### Fixed
 
+- The calls of a failed request, and a call no window can fit, are scored from
+  the transcript. A blanket score of 1 put them above every call the model
+  answered for, while a call too big for the budget was cut all the same.
 - An input that an earlier compaction cut to a stub is left as it is, and not
   cut again at each compaction.
 - `recall` search skips runs of encoded data (long base64-like runs that mix
