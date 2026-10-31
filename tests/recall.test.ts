@@ -47,6 +47,57 @@ describe('recall query over encoded data', () => {
   });
 });
 
+describe('recall query ranking', () => {
+  const first = (entries: Entry[], query: string) => runRecall(entries, { query }).split('\n\n')[1]!.split('\n')[0];
+
+  it('puts the asked words in order ahead of a better scattered score', () => {
+    n = 0;
+    const entries = [
+      reply('timeout timeout timeout cache cache cache'),
+      reply(`a long note where we said the cache timeout was too low ${'and more words '.repeat(30)}`),
+    ];
+    expect(first(entries, 'cache timeout')).toBe('#2 reply');
+    expect(runRecall(entries, { query: 'cache timeout' })).toContain('cache timeout was too low');
+  });
+
+  it('ranks a word above the same letters inside another word, and still finds those', () => {
+    n = 0;
+    const entries = [reply('threshold threshold threshold'), reply('hold it')];
+    expect(first(entries, 'hold')).toBe('#2 reply');
+    expect(runRecall(entries, { query: 'hold' })).toMatch(/^2 match/);
+  });
+
+  it('counts a Russian ending and a snake_case part as a word start', () => {
+    n = 0;
+    const entries = [reply('также также также кэш_ключ'), reply('в начале кэша')];
+    expect(runRecall(entries, { query: 'кэш' })).toMatch(/^2 match/);
+    expect(first([reply('маккэш маккэш'), reply('горячий кэша')], 'кэш')).toBe(`#${n} reply`);
+  });
+
+  it('drops Russian function words from a query, with ё or е', () => {
+    n = 0;
+    const entries = [reply('также какой-то текст'), reply('как работает отсечка')];
+    expect(runRecall(entries, { query: 'почему как отсечка' })).toMatch(/^1 match/);
+    expect(runRecall(entries, { query: 'её отсечка' })).toMatch(/^1 match/);
+  });
+
+  it('refuses a query of stopwords alone, but runs a short regex', () => {
+    n = 0;
+    const entries = [reply('error 42 is here')];
+    expect(runRecall(entries, { query: 'the the the' })).toMatch(/^Too broad/);
+    expect(runRecall(entries, { query: 'что как' })).toMatch(/^Too broad/);
+    expect(runRecall(entries, { query: '\\d+' })).toMatch(/^1 match/);
+  });
+
+  it('limits a query to who wrote it', () => {
+    n = 0;
+    const entries = [prompt('keep the cache'), reply('the cache stays'), call('toolu_a', 'Bash', { command: 'cache' }, 'ok')];
+    expect(runRecall(entries, { query: 'cache', who: 'user' })).toMatch(/^1 match[^]*#1 prompt/);
+    expect(runRecall(entries, { query: 'cache', who: 'assistant' })).toMatch(/^1 match[^]*#2 reply/);
+    expect(runRecall(entries, { query: 'cache', who: 'tools' })).toMatch(/^1 match[^]*#3 call/);
+  });
+});
+
 function session(): Entry[] {
   n = 0;
   return [

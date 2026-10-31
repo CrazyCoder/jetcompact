@@ -25,7 +25,7 @@ export const RECALL_DESCRIPTION = [
   'Use it before saying the context is gone, instead of running a tool again to see its old output, and when the user points at earlier work ("as we did in the billing-api session").',
   '',
   'One per call:',
-  '- query: keywords (ranked) or a regex, e.g. "redis timeout"; 5 hits per page.',
+  '- query: keywords (ranked, the exact phrase first) or a regex, e.g. "redis timeout"; 5 hits per page. who: "user", "assistant" or "tools" limits it, e.g. to what the user said.',
   '- expand: ["#N" or a tool_use_id, ...]: those entries in full, a call with its input and result.',
   '- range: [from, to]: entries #from..#to in order, one line each.',
   '- touched: true for the files changed in this session and the calls that changed them; a part of a path for every call on the files it matches, reads included.',
@@ -40,6 +40,11 @@ export const RECALL_INPUT_SCHEMA = {
   type: 'object',
   properties: {
     query: { type: 'string', description: 'Keywords, ranked by relevance; a regex also works.' },
+    who: {
+      type: 'string',
+      enum: ['user', 'assistant', 'tools'],
+      description: 'Limit query to what the user wrote, what the assistant wrote, or tool calls.',
+    },
     expand: {
       type: 'array',
       items: { type: ['string', 'number'] },
@@ -72,6 +77,7 @@ export function recallRequest(e: Record<string, unknown>): RecallRequest {
   const expand = typeof e['expand'] === 'string' || typeof e['expand'] === 'number' ? [e['expand']] : e['expand'];
   return {
     ...(typeof e['query'] === 'string' && { query: e['query'] }),
+    ...((e['who'] === 'user' || e['who'] === 'assistant' || e['who'] === 'tools') && { who: e['who'] }),
     ...(Array.isArray(expand) && { expand: expand.filter((r) => typeof r === 'string' || typeof r === 'number') }),
     ...(range?.length === 2 && range.every(Number.isFinite) && { range: [range[0]!, range[1]!] as const }),
     ...(number(e['page']) !== undefined && { page: number(e['page']) }),

@@ -3,6 +3,22 @@
 All notable changes to this fork are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- `recall` takes `who: "user"`, `"assistant"` or `"tools"`, which limits a
+  `query` to what that side wrote.
+
+### Changed
+
+- `recall` search puts entries holding the exact phrase first, and ranks a word
+  above the same letters inside another word, so `hold` no longer rates
+  `threshold` as high. Such matches are still found.
+- Russian function words such as `как`, `что` and `почему` no longer count in a
+  search. A query of stopwords alone gets `Too broad` in the current session
+  too.
+
 ## [0.14.1]
 
 ### Added

@@ -11,7 +11,7 @@
 import { spawnSync } from 'node:child_process';
 import { readdirSync, statSync } from 'node:fs';
 import { basename, join, sep } from 'node:path';
-import { countMatches, keywords, runQuery, tooBroad } from './recall.ts';
+import { countMatches, keywords, runQuery, TOO_BROAD, tooBroad } from './recall.ts';
 import {
   lines,
   noteMeta,
@@ -122,7 +122,6 @@ function indexedAnswer(hits: readonly IndexedHit[], query: string, page: number,
 
 /** How long a scan may read transcripts before it answers with what it has. */
 const SCAN_BUDGET_MS = 30_000;
-const TOO_BROAD = 'Too broad: give a word that says what to find, such as a file, tool, error or name.';
 
 export type SearchOptions = { rg?: string; index?: SessionIndex; budgetMs?: number };
 

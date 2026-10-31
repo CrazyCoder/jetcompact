@@ -22,6 +22,8 @@ export const RECALL_TOOL = 'mcp__jetcompact__recall';
 export type RecallRequest = {
   /** Keywords, ranked by BM25; or a regex when it holds regex characters. */
   query?: string;
+  /** Limits a query to what the user wrote, what the assistant wrote, or tool calls. */
+  who?: 'user' | 'assistant' | 'tools';
   /** Entries in full: `#N`, `N` or a tool_use_id. */
   expand?: readonly (string | number)[];
   /** Entries `from`..`to`, one short line each. */
@@ -63,7 +65,7 @@ const SEARCH_BUDGET_MS = 3_000;
 
 const USAGE = [
   'Give one of:',
-  '- query: keywords (ranked) or a regex, e.g. "redis timeout"; 5 hits per page.',
+  '- query: keywords (ranked) or a regex, e.g. "redis timeout"; 5 hits per page. who: "user", "assistant" or "tools" limits it.',
   '- expand: ["#N" or a tool_use_id, ...]: those entries in full.',
   '- range: [from, to]: entries #from..#to in order, one line each, 20 per page.',
   'Add page: N for the next page of a query or range.',
@@ -130,14 +132,35 @@ function safeRegex(pattern: string, flags = 'i'): RegExp {
 
 // ── ranking (pi-vcc BM25-lite) ──
 
+/**
+ * English from pi-vcc. Russian from the Snowball stop list (BSD 3-clause,
+ * copyright Dr Martin Porter and Richard Boulton), without its words about
+ * people and speech, with common question words and pronoun forms added, in the
+ * list's spelling: `е` for `ё`. A list of function words only: a general one
+ * such as stopwords-iso also drops `работа`, `время` and `вопрос`, which are
+ * what a search here looks for.
+ */
 const STOPWORDS = new Set(
   ('the a an is are was were be been being have has had do does did will would could should may might can shall ' +
     'of in to for with on at from by as into through during before after above below between out off over under ' +
     'again further then once here there when where why how all both each few more most other some such no nor not ' +
-    'only own same so than too very just about it its that this what which who whom these those').split(' '),
+    'only own same so than too very just about it its that this what which who whom these those ' +
+    'и в во не что он я с со как а то все она так его но да ты к у же вы за бы по только ее мне было вот от меня ' +
+    'еще нет о из ему теперь когда даже ну вдруг ли если уже или ни быть был него до вас нибудь опять уж вам ведь ' +
+    'там потом себя ничего ей может они тут где есть надо ней для мы тебя их чем была сам чтоб без будто чего раз ' +
+    'тоже себе под будет ж тогда кто этот того потому этого какой совсем здесь этом один мой тем чтобы нее кажется ' +
+    'сейчас были куда зачем всех никогда можно при наконец два об другой хоть после над больше тот через эти нас ' +
+    'про всего них какая много разве три эту моя впрочем хорошо свою этой перед иногда лучше чуть том нельзя такой ' +
+    'им более всегда конечно всю между оно это эта почему какие какое которые который которая нам вами нами ним ' +
+    'ими тебе тобой мной нужно').split(' '),
 );
 const BM25_K = 1.2;
 const BM25_B = 0.75;
+/** What a match inside a word counts for against one at a word's start: `как` in `также`, `hold` in `threshold`. */
+const MID_WORD_WEIGHT = 0.25;
+
+/** The answer to a query with nothing to search by. */
+export const TOO_BROAD = 'Too broad: give a word that says what to find, such as a file, tool, error or name.';
 
 /** The words a query ranks by: regex characters dropped, and stopwords unless nothing else is left. */
 export function keywords(query: string): string[] {
@@ -147,7 +170,7 @@ export function keywords(query: string): string[] {
 }
 
 function meaningfulWords(words: readonly string[]): string[] {
-  return words.filter((w) => !STOPWORDS.has(w.toLowerCase()) && w.length > 1);
+  return words.filter((w) => !STOPWORDS.has(w.toLowerCase().replaceAll('ё', 'е')) && w.length > 1);
 }
 
 /** Whether `query` has no word but stopwords and single characters. */
@@ -202,7 +225,7 @@ function deadline(): () => void {
  * hit's snippet. A query with regex characters is tried as a regex first; when
  * that finds nothing, its words are ranked instead (`fix?`, `$HOME`).
  */
-function search(entries: readonly Entry[], query: string): { hits: Entry[]; marker: RegExp } {
+function search(entries: readonly Entry[], query: string): { hits: Entry[]; marker: RegExp; phrase?: RegExp; broad?: boolean } {
   const check = deadline();
   const docs = entries.map(docOf);
   if (/[|*+?{}()[\]\\^$]/.test(query)) {
@@ -215,7 +238,12 @@ function search(entries: readonly Entry[], query: string): { hits: Entry[]; mark
     if (hits.length > 0) return { hits: hits.reverse(), marker: re };
     query = query.replace(/[|*+?{}()[\]\\^$]/g, ' ');
   }
-  const terms = keywords(query).map((w) => new RegExp(escapeRegex(w), 'gi'));
+  if (tooBroad(query)) return { hits: [], marker: /$^/, broad: true };
+  const words = keywords(query);
+  const terms = words.map((w) => new RegExp(escapeRegex(w), 'gi'));
+  const atStart = words.map((w) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(w)}`, 'giu'));
+  const asked = query.trim().split(/\s+/);
+  const phrase = asked.length > 1 ? new RegExp(asked.map(escapeRegex).join('\\s+'), 'i') : undefined;
   const lengths = docs.map((doc) => doc.split(/\s+/).length);
   const avg = lengths.reduce((a, b) => a + b, 0) / Math.max(docs.length, 1);
   const df = terms.map((term) => docs.filter((doc) => doc.search(term) !== -1).length);
@@ -224,17 +252,21 @@ function search(entries: readonly Entry[], query: string): { hits: Entry[]; mark
       check();
       let score = 0;
       terms.forEach((term, t) => {
-        const tf = doc.match(term)?.length ?? 0;
-        if (tf === 0) return;
+        const found = doc.match(term)?.length ?? 0;
+        if (found === 0) return;
+        const whole = doc.match(atStart[t]!)?.length ?? 0;
+        const tf = whole + MID_WORD_WEIGHT * (found - whole);
         const idf = Math.log((docs.length - df[t]! + 0.5) / (df[t]! + 0.5) + 1);
         score += (idf * (tf * (BM25_K + 1))) / (tf + BM25_K * (1 - BM25_B + (BM25_B * lengths[i]!) / avg));
       });
-      return { entry: entries[i]!, score };
+      return { entry: entries[i]!, score, exact: score > 0 && phrase?.test(doc) === true };
     })
     .filter((s) => s.score > 0)
-    // Best first; on a tie the later entry, as it is closer to the current work.
-    .sort((a, b) => b.score - a.score || b.entry.n - a.entry.n);
-  return { hits: scored.map((s) => s.entry), marker: new RegExp(terms.map((t) => t.source).join('|'), 'i') };
+    // The asked words in order first, then best first; on a tie the later
+    // entry, as it is closer to the current work.
+    .sort((a, b) => Number(b.exact) - Number(a.exact) || b.score - a.score || b.entry.n - a.entry.n);
+  const marker = new RegExp(terms.map((t) => t.source).join('|'), 'i');
+  return { hits: scored.map((s) => s.entry), marker, ...(phrase && { phrase }) };
 }
 
 // ── rendering ──
@@ -300,13 +332,18 @@ export function countMatches(entries: readonly Entry[], query: string): number {
 
 /** Ranked hits for `query`, a page at a time. */
 export function runQuery(entries: readonly Entry[], query: string, page: number, text: QueryText = {}): string {
-  const { hits, marker } = search(entries, query);
+  const { hits, marker, phrase, broad } = search(entries, query);
+  if (broad) return TOO_BROAD;
   const echo = clip(query, QUERY_ECHO_CHARS);
   if (hits.length === 0) return text.none?.(echo) ?? `No match for "${echo}".`;
   const p = pager(hits.length, QUERY_PAGE, page);
+  const excerpt = (entry: Entry): string => {
+    const doc = docOf(entry);
+    return snippet(doc, phrase?.test(doc) ? phrase : marker);
+  };
   const blocks = hits
     .slice(p.from, p.from + QUERY_PAGE)
-    .map((entry, i) => `${heading(entry, text.ranked ? p.from + i + 1 : undefined)}\n${snippet(docOf(entry), marker)}`);
+    .map((entry, i) => `${heading(entry, text.ranked ? p.from + i + 1 : undefined)}\n${excerpt(entry)}`);
   const next = p.page < p.pages ? ` Next: page: ${p.page + 1}.` : '';
   const scope = text.scope ? ` ${text.scope(hits)}` : '';
   return [
@@ -465,7 +502,10 @@ export function runRecall(all: readonly Entry[], request: RecallRequest, deps: R
     if (request.touched === true || (typeof request.touched === 'string' && request.touched.trim())) {
       return runTouched(entries, request.touched === true ? true : request.touched.trim(), page);
     }
-    if (request.query?.trim()) return runQuery(entries, request.query.trim(), page);
+    if (request.query?.trim()) {
+      const kind = request.who && ({ user: 'prompt', assistant: 'reply', tools: 'call' } as const)[request.who];
+      return runQuery(kind ? entries.filter((entry) => entry.kind === kind) : entries, request.query.trim(), page);
+    }
   } catch (error) {
     return `Recall failed: ${error instanceof Error ? error.message : String(error)}`;
   }
