@@ -158,16 +158,17 @@ export function tooBroad(query: string): boolean {
 /** A base64-like run, on one line or wrapped at 60 characters or more. */
 const ENCODED_RUN = /[A-Za-z0-9+/_-]{60,}={0,2}(?:\r?\n[A-Za-z0-9+/_-]{60,}={0,2})*/g;
 const ENCODED_MIN_CHARS = 1_000;
-/** Base64 has a slash in about 1.6% of its characters; a path has far more. */
-const ENCODED_MAX_SLASHES = 0.05;
+/** Share of a run in lowercase words of five or more letters above which it is names, not data. */
+const ENCODED_MAX_WORDS = 0.25;
 
 /**
- * Whether a run looks encoded: it mixes digits and both cases, has few slashes,
- * and all its lines but the last have one width.
+ * Whether a run looks encoded: it mixes digits and both cases, holds few
+ * lowercase words, which paths and identifiers are made of, and all its lines
+ * but the last have one width.
  */
 function isEncoded(run: string): boolean {
   if (run.length < ENCODED_MIN_CHARS || !/\d/.test(run) || !/[a-z]/.test(run) || !/[A-Z]/.test(run)) return false;
-  if ((run.match(/\//g)?.length ?? 0) / run.length > ENCODED_MAX_SLASHES) return false;
+  if ((run.match(/[a-z]{5,}/g)?.join('').length ?? 0) / run.length > ENCODED_MAX_WORDS) return false;
   const lines = run.split(/\r?\n/);
   return lines.slice(0, -1).every((line) => line.length === lines[0]!.length);
 }
