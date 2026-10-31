@@ -3,7 +3,12 @@
 All notable changes to this fork are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.14.1]
+
+### Added
+
+- `takeMidTurnPrompts` and `withPromptRows` in the library: they turn prompts
+  typed mid-turn into user rows ahead of a compaction.
 
 ### Fixed
 
@@ -11,6 +16,8 @@ All notable changes to this fork are documented here. The format follows
   `recall` and the session index read it, and a compaction gives it a row of its
   own, so it enters the digest, the goal and `recentTurns` instead of being lost
   with the turn it was typed in.
+- The digest boundary no longer passes a call still waiting for its result, so a
+  pending call stays in the history.
 
 ## [0.14.0]
 
