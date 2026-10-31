@@ -239,7 +239,7 @@ export interface CompactResult {
     /** Which fitting stage the state needed, '' when no request was made. */
     stateStage: string;
     requests: number;
-    /** Requests that failed after their retry; their calls were kept. */
+    /** Requests that failed after their retry; their calls were scored from the transcript. */
     requestsFailed: number;
     /** The first such failure's message, when there was one. */
     requestError?: string;
