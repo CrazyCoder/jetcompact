@@ -37,8 +37,9 @@ describe('recall query over encoded data', () => {
     expect(out).not.toContain('aZ3x');
   });
 
-  it('keeps long hex, identifiers and short runs searchable', () => {
-    for (const text of ['abc123max'.repeat(200), 'getMaxRetryCount'.repeat(100), encoded(500)]) {
+  it('keeps long hex, identifiers, short runs and lists of paths searchable', () => {
+    const paths = Array.from({ length: 20 }, (_, i) => `/home/Serge/projects/Project${i}/src/VeryLongDirectoryName/MaxComponent${'x'.repeat(i)}`);
+    for (const text of ['abc123max'.repeat(200), 'getMaxRetryCount'.repeat(100), encoded(500), paths.join('\n')]) {
       expect(runRecall(entries(text), { query: 'max' })).toMatch(/^2 match/);
     }
   });

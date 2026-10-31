@@ -159,15 +159,20 @@ export function tooBroad(query: string): boolean {
 const ENCODED_RUN = /[A-Za-z0-9+/_-]{60,}={0,2}(?:\r?\n[A-Za-z0-9+/_-]{60,}={0,2})*/g;
 const ENCODED_MIN_CHARS = 1_000;
 
+/** Whether a run looks encoded: it mixes digits and both cases, and all its lines but the last have one width. */
+function isEncoded(run: string): boolean {
+  if (run.length < ENCODED_MIN_CHARS || !/\d/.test(run) || !/[a-z]/.test(run) || !/[A-Z]/.test(run)) return false;
+  const lines = run.split(/\r?\n/);
+  return lines.slice(0, -1).every((line) => line.length === lines[0]!.length);
+}
+
 /**
  * `text` with runs of encoded data replaced: a term matches inside them by
- * chance, and such a run counts as one word, which ranks it first. A run must
- * mix digits and both cases, so hex, joined identifiers and path lists stay.
+ * chance, and such a run counts as one word, which ranks it first. Hex, joined
+ * identifiers and lists of paths stay.
  */
 function withoutEncoded(text: string): string {
-  return text.replace(ENCODED_RUN, (run) =>
-    run.length >= ENCODED_MIN_CHARS && /\d/.test(run) && /[a-z]/.test(run) && /[A-Z]/.test(run) ? '[encoded data]' : run,
-  );
+  return text.replace(ENCODED_RUN, (run) => (isEncoded(run) ? '[encoded data]' : run));
 }
 
 /** The searchable text of an entry. */

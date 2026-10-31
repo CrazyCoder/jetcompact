@@ -701,7 +701,15 @@ describe('compact', () => {
       const again = await run(first.output.messages, 0.1, options);
       expect(again.questions).toEqual([]);
       expect(again.output.messages.flatMap((m) => m.toolUses)[0]!.input).toEqual(stub);
-      expect(again.output.decisions).toMatchObject([{ action: 'stub_call', reason: 'call_stubbed' }]);
+      expect(again.output.decisions).toMatchObject([{ action: 'keep', reason: 'kept' }]);
+      expect(again.output.messages[0]!.text).toMatch(/1 older tool calls reduced to stubs/);
+    });
+
+    it('takes an input for a stub only with the note this plugin writes', async () => {
+      const lookalike = { input_head: big, note: 'Keep this explanation' };
+      const { output, questions } = await run(history(lookalike, 'updated'));
+      expect(questions).toEqual(['call_t1']);
+      expect(output.decisions).toMatchObject([{ action: 'stub_call', reason: 'call_stubbed' }]);
     });
 
     it('still names a document an earlier compaction cut, without asking about it', async () => {
@@ -712,8 +720,17 @@ describe('compact', () => {
       const first = await run(messages, 0.1, options);
       const again = await run(first.output.messages, 0.1, options);
       expect(again.questions).toEqual([]);
-      expect(again.output.decisions).toMatchObject([{ action: 'drop_result', reason: 'result_dropped' }]);
+      expect(again.output.decisions).toMatchObject([{ action: 'keep', reason: 'kept' }]);
       expect(again.output.messages[0]!.text).toContain('`RULES.md`');
+    });
+
+    it('still names a document cut earlier that the model keeps at a shorter head', async () => {
+      const cut = `${'h'.repeat(300)}\n[jetcompact truncated 900 chars of this tool result; full text: recall expand ["c1"]]`;
+      const messages = history({ file_path: 'RULES.md' }, cut);
+      messages[1]!.toolUses[0]!.tool = 'Read';
+      const { output } = await run(messages, 0.9, { truncateHeadChars: 100, recallNotes: true });
+      expect(output.decisions).toMatchObject([{ action: 'keep', reason: 'kept' }]);
+      expect(output.messages[0]!.text).toContain('`RULES.md`');
     });
 
     it('leaves whole a result the model kept, though an earlier compaction cut it', async () => {

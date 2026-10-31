@@ -408,21 +408,9 @@ function sizeOf(messages: readonly Message[], call: ToolCall, headChars: number,
       estimateTokens(inputJson(call.input)) +
       estimateTokens(truncatedResultText(text, call.isError, headChars)),
     ...sides,
-    resultWasCut: !sides.cutsResult && ownCutNote(call.tool_use_id, text) !== null,
+    resultWasCut: ownCutNote(call.tool_use_id, text) !== null,
     inputWasCut: isCutInput(call.input),
   };
-}
-
-/**
- * A kept call that an earlier compaction cut counts as cut, so a document it
- * read is still named. Only what this compaction leaves as it is changes
- * action: applying it rewrites nothing.
- */
-function withEarlierCut(decision: CallDecision, size: CallSize | undefined): CallDecision {
-  if (decision.reason !== 'kept' || !size || size.cutsResult) return decision;
-  if (size.inputWasCut && !size.cutsInput) return { ...decision, action: 'stub_call', reason: 'call_stubbed' };
-  if (size.resultWasCut) return { ...decision, action: 'drop_result', reason: 'result_dropped' };
-  return decision;
 }
 
 /**
@@ -653,9 +641,12 @@ function restOf(id: string, recall: boolean, fallback: string): string {
 /** A text this short stays whole when cut: the head and the note would take as much room. */
 const fitsHead = (chars: number, headChars: number): boolean => chars <= headChars + 120;
 
+const CUT_INPUT_NOTE = new RegExp(`^\\[${PLUGIN_ID} truncated \\d+ chars of this tool input`);
+
 /** A stub an earlier compaction left: `truncatedInput` has already cut this input. */
 function isCutInput(input: Record<string, unknown>): boolean {
-  return typeof input['input_head'] === 'string' && typeof input['note'] === 'string' && Object.keys(input).length === 2;
+  const note = input['note'];
+  return typeof input['input_head'] === 'string' && typeof note === 'string' && CUT_INPUT_NOTE.test(note) && Object.keys(input).length === 2;
 }
 
 function truncatedResultText(text: string, isError: boolean, headChars: number, id = '', recall = false): string {
@@ -945,7 +936,7 @@ export async function compact(
     if (failure !== undefined) requestError = failure instanceof Error ? failure.message : String(failure);
   }
 
-  const decided =
+  const decisions =
     resolved.keepMode === 'rank'
       ? rankDecisions(calls, answers, sizes, resolved)
       : calls.map((call) =>
@@ -955,7 +946,6 @@ export async function compact(
             resolved,
           ),
         );
-  const decisions = decided.map((decision) => withEarlierCut(decision, sizes.get(decision.id)));
   const applied = applyDecisions(
     messages,
     decisions,
@@ -965,13 +955,23 @@ export async function compact(
   );
   const aged = resolved.ageCutResults ? ageCutResults(messages, applied, calls) : { messages: applied, count: 0 };
   const kept = aged.messages;
+  const cutEarlier = (decision: CallDecision, side: 'resultWasCut' | 'inputWasCut'): boolean =>
+    decision.reason === 'kept' && sizes.get(decision.id)?.[side] === true;
+  const stayedStubs = decisions.filter((d) => cutEarlier(d, 'inputWasCut')).length;
   const cut = {
     resultsDropped: count(decisions, 'result_dropped'),
     callsDropped: count(decisions, 'call_dropped'),
     callsStubbed: count(decisions, 'call_stubbed'),
     oldProseReplaced: prose.replaced,
   };
-  const note = resolved.recallNotes ? compactionNote(cut, cutDocuments(history, calls, decisions)) : undefined;
+  // What this compaction left as an earlier one cut it is still cut for the note.
+  const noted = {
+    ...cut,
+    resultsDropped: cut.resultsDropped + decisions.filter((d) => cutEarlier(d, 'resultWasCut')).length - stayedStubs,
+    callsStubbed: cut.callsStubbed + stayedStubs,
+  };
+  const whole = decisions.filter((d) => !cutEarlier(d, 'resultWasCut'));
+  const note = resolved.recallNotes ? compactionNote(noted, cutDocuments(history, calls, whole)) : undefined;
   if (note) {
     kept.unshift(
       { role: 'user', text: note, toolUses: [] },
