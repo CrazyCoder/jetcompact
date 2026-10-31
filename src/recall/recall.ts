@@ -155,9 +155,24 @@ export function tooBroad(query: string): boolean {
   return meaningfulWords(query.replace(/[|*+?{}()[\]\\^$]/g, ' ').split(/\s+/)).length === 0;
 }
 
+/** A base64-like run, on one line or wrapped at 60 characters or more. */
+const ENCODED_RUN = /[A-Za-z0-9+/_-]{60,}={0,2}(?:\r?\n[A-Za-z0-9+/_-]{60,}={0,2})*/g;
+const ENCODED_MIN_CHARS = 1_000;
+
+/**
+ * `text` with runs of encoded data replaced: a term matches inside them by
+ * chance, and such a run counts as one word, which ranks it first. A run must
+ * mix digits and both cases, so hex, joined identifiers and path lists stay.
+ */
+function withoutEncoded(text: string): string {
+  return text.replace(ENCODED_RUN, (run) =>
+    run.length >= ENCODED_MIN_CHARS && /\d/.test(run) && /[a-z]/.test(run) && /[A-Z]/.test(run) ? '[encoded data]' : run,
+  );
+}
+
 /** The searchable text of an entry. */
 function docOf(entry: Entry): string {
-  return entry.kind === 'call' ? `${entry.tool} ${JSON.stringify(entry.input)}\n${entry.result ?? ''}` : entry.text;
+  return withoutEncoded(entry.kind === 'call' ? `${entry.tool} ${JSON.stringify(entry.input)}\n${entry.result ?? ''}` : entry.text);
 }
 
 function deadline(): () => void {

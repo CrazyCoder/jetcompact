@@ -19,6 +19,9 @@ const tagBlock = (tag: string): RegExp => new RegExp(`<${tag}>[\\s\\S]*?</${tag}
 export const HOST_TEXT_PATTERNS: readonly HostTextPattern[] = [
   { name: 'system-reminder', pattern: tagBlock('system-reminder'), why: 'reminders, memory, skill listings and hook context the harness injects into user turns' },
   { name: 'task-notification', pattern: tagBlock('task-notification'), why: 'background task and subagent completion notices' },
+  { name: 'side-sessions-event', pattern: tagBlock('side-sessions-event'), why: 'the desktop app waking a session when the sessions it started are done' },
+  { name: 'ci-monitor-event', pattern: tagBlock('ci-monitor-event'), why: 'the desktop app reporting on a pull request it watches' },
+  { name: 'request-interrupted', pattern: /^\s*\[Request interrupted by user[^\]\n]*\]\s*$/g, why: 'the row the host writes when the user stops a turn; it is the whole message' },
   { name: 'local-command-stdout', pattern: tagBlock('local-command-stdout'), why: 'output of a local slash command' },
   { name: 'local-command-stderr', pattern: tagBlock('local-command-stderr'), why: 'error output of a local slash command' },
   { name: 'local-command-caveat', pattern: tagBlock('local-command-caveat'), why: 'the "ignore these local command messages" caveat' },

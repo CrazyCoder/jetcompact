@@ -16,11 +16,11 @@ function message(role: Message['role'], text: string, extra: Partial<Message> = 
   return { role, text, toolUses: [], ...extra };
 }
 
-/** A user prompt, then `n` Read calls with results, then a closing exchange. */
+/** A user prompt, then `n` Write calls with results, then a closing exchange. */
 function transcript(n: number): Message[] {
   const body = 'export const x = 1;\n'.repeat(40);
   const calls = Array.from({ length: n }, (_, i) => [
-    message('assistant', '', { toolUses: [{ tool_use_id: `c${i}`, tool: 'Read', input: { file_path: `f${i}.ts` }, text: body }] }),
+    message('assistant', '', { toolUses: [{ tool_use_id: `c${i}`, tool: 'Write', input: { file_path: `f${i}.ts`, content: 'y'.repeat(500) }, text:body }] }),
     message('user', '', { toolResults: [{ tool_use_id: `c${i}`, text: body, isError: false }] }),
   ]).flat();
   return [message('user', 'Fix the bug.'), ...calls, message('assistant', 'Done.'), message('user', 'thanks')];

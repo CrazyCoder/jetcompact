@@ -40,6 +40,7 @@ export const DEFAULT_OPTIONS: ResolvedCompactOptions = {
   maxRequestTokens: 30_000,
   maxConcurrentRequests: 4,
   truncateHeadChars: 300,
+  askHeadChars: 300,
   recallNotes: false,
   dropCalls: false,
   trimHostText: true,
@@ -133,6 +134,10 @@ function finite(value: number | undefined, fallback: number): number {
 }
 
 export function resolveOptions(options: CompactOptions = {}): ResolvedCompactOptions {
+  const truncateHeadChars = Math.max(
+    0,
+    Math.floor(finite(options.truncateHeadChars, DEFAULT_OPTIONS.truncateHeadChars)),
+  );
   return {
     goal: options.goal ?? DEFAULT_OPTIONS.goal,
     instructions: options.instructions?.trim() ?? DEFAULT_OPTIONS.instructions,
@@ -158,10 +163,8 @@ export function resolveOptions(options: CompactOptions = {}): ResolvedCompactOpt
       1,
       Math.floor(finite(options.maxConcurrentRequests, DEFAULT_OPTIONS.maxConcurrentRequests)),
     ),
-    truncateHeadChars: Math.max(
-      0,
-      Math.floor(finite(options.truncateHeadChars, DEFAULT_OPTIONS.truncateHeadChars)),
-    ),
+    truncateHeadChars,
+    askHeadChars: Math.max(0, Math.floor(finite(options.askHeadChars, truncateHeadChars))),
     dropCalls: typeof options.dropCalls === 'boolean' ? options.dropCalls : DEFAULT_OPTIONS.dropCalls,
     trimHostText:
       typeof options.trimHostText === 'boolean' ? options.trimHostText : DEFAULT_OPTIONS.trimHostText,
@@ -280,20 +283,24 @@ export function algorithmicAnswers(
   );
 }
 
-/** The two `noul` questions asked about one call: keep the call, keep its result. */
+/** The `noul` questions asked about one call: keep the call, keep its result, or the one in `asks`. */
 export function questionsFor(call: ToolCall, criteria = false): JevQuestions {
-  return {
-    [`call_${call.id}`]: {
+  const questions: JevQuestions = {};
+  if (call.asks !== 'result') {
+    questions[`call_${call.id}`] = {
       type: 'noul',
       instructions: `Tool call ${call.id} (${call.tool}) should stay in the history: knowing this call was made, with its input, still matters for what the assistant does next`,
       ...(criteria ? { criteria: CALL_CRITERIA } : {}),
-    },
-    [`result_${call.id}`]: {
+    };
+  }
+  if (call.asks !== 'call') {
+    questions[`result_${call.id}`] = {
       type: 'noul',
       instructions: `The full output of tool call ${call.id} (${call.tool}, ${call.resultChars} chars) should stay in the history verbatim: the assistant still needs its contents and re-running the tool would not do`,
       ...(criteria ? { criteria: RESULT_CRITERIA } : {}),
-    },
-  };
+    };
+  }
+  return questions;
 }
 
 /**
@@ -360,28 +367,62 @@ export function decideCall(
   return { ...base, action: 'drop_call', reason: 'call_dropped' };
 }
 
-/** Estimated tokens a call costs to keep verbatim, or to keep as input plus truncated head. */
+/**
+ * Estimated tokens a call costs to keep verbatim, or to keep as input plus
+ * truncated head, which of its sides a cut changes (absent, both), and which
+ * an earlier compaction has already cut.
+ */
 export interface CallSize {
   resultTokens: number;
   truncatedTokens: number;
+  cutsResult?: boolean;
+  cutsInput?: boolean;
+  resultWasCut?: boolean;
+  inputWasCut?: boolean;
 }
 
-function sizeOf(messages: readonly Message[], call: ToolCall, headChars: number): CallSize {
+function inputJson(input: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(input);
+  } catch {
+    return '[unserializable input]';
+  }
+}
+
+/** Which sides of `call` a cut to `headChars` changes. */
+function cutSides(call: ToolCall, headChars: number, dropCalls: boolean): Pick<CallSize, 'cutsResult' | 'cutsInput'> {
+  return {
+    cutsResult: !fitsHead(call.resultChars, headChars),
+    cutsInput: dropCalls || (!fitsHead(inputJson(call.input).length, headChars) && !isCutInput(call.input)),
+  };
+}
+
+function sizeOf(messages: readonly Message[], call: ToolCall, headChars: number, dropCalls: boolean): CallSize {
   const message = messages[call.resultIndex];
   const text =
     message?.toolResults?.find((result) => result.tool_use_id === call.tool_use_id)?.text ?? '';
-  let input = '';
-  try {
-    input = JSON.stringify(call.input);
-  } catch {
-    input = '[unserializable input]';
-  }
+  const sides = cutSides(call, headChars, dropCalls);
   return {
     resultTokens: estimateTokens(text),
     truncatedTokens:
-      estimateTokens(input) +
+      estimateTokens(inputJson(call.input)) +
       estimateTokens(truncatedResultText(text, call.isError, headChars)),
+    ...sides,
+    resultWasCut: !sides.cutsResult && ownCutNote(call.tool_use_id, text) !== null,
+    inputWasCut: isCutInput(call.input),
   };
+}
+
+/**
+ * A kept call that an earlier compaction cut counts as cut, so a document it
+ * read is still named. Only what this compaction leaves as it is changes
+ * action: applying it rewrites nothing.
+ */
+function withEarlierCut(decision: CallDecision, size: CallSize | undefined): CallDecision {
+  if (decision.reason !== 'kept' || !size || size.cutsResult) return decision;
+  if (size.inputWasCut && !size.cutsInput) return { ...decision, action: 'stub_call', reason: 'call_stubbed' };
+  if (size.resultWasCut) return { ...decision, action: 'drop_result', reason: 'result_dropped' };
+  return decision;
 }
 
 /**
@@ -389,7 +430,7 @@ function sizeOf(messages: readonly Message[], call: ToolCall, headChars: number)
  * absolute threshold keeps nothing; the best-scored results are kept within
  * `keepResultTokens`, then the best-scored inputs within `keepCallTokens`.
  * A call too big for what is left is skipped, not a stop. Ties go to the more
- * recent call.
+ * recent call. A call no cut can change spends no budget, and stays.
  */
 export function rankDecisions(
   calls: readonly ToolCall[],
@@ -424,7 +465,13 @@ export function rankDecisions(
   const sizeOfCall = (call: ToolCall): CallSize =>
     sizes.get(call.id) ?? { resultTokens: 0, truncatedTokens: 0 };
   spend(
-    ranked((call) => answerOf(call).keepResult, candidates),
+    ranked(
+      (call) => answerOf(call).keepResult,
+      candidates.filter((call) => {
+        const { cutsResult = true, cutsInput = true } = sizeOfCall(call);
+        return cutsResult || cutsInput;
+      }),
+    ),
     options.keepResultTokens,
     (call) => sizeOfCall(call).resultTokens,
     'keep',
@@ -432,7 +479,7 @@ export function rankDecisions(
   spend(
     ranked(
       (call) => answerOf(call).keepCall,
-      candidates.filter((call) => !actions.has(call.id)),
+      candidates.filter((call) => !actions.has(call.id) && sizeOfCall(call).cutsInput !== false),
     ),
     options.keepCallTokens,
     (call) => sizeOfCall(call).truncatedTokens,
@@ -441,9 +488,12 @@ export function rankDecisions(
   return calls.map((call) => {
     const base = { id: call.id, tool: call.tool, ...answerOf(call) };
     if (call.pinned) return { ...base, action: 'keep', reason: 'pinned' };
+    const { cutsResult = true, cutsInput = true } = sizeOfCall(call);
     const action = actions.get(call.id);
-    if (action === 'keep') return { ...base, action, reason: 'kept' };
-    if (action === 'drop_result') return { ...base, action, reason: 'result_dropped' };
+    const inputStays = action !== undefined || !cutsInput;
+    const resultStays = action === 'keep' || !cutsResult;
+    if (inputStays && resultStays) return { ...base, action: 'keep', reason: 'kept' };
+    if (inputStays) return { ...base, action: 'drop_result', reason: 'result_dropped' };
     if (options.dropCalls === false) return { ...base, action: 'stub_call', reason: 'call_stubbed' };
     return { ...base, action: 'drop_call', reason: 'call_dropped' };
   });
@@ -458,13 +508,12 @@ async function askBatch(
   const questions: JevQuestions = Object.assign({}, ...batch.map((call) => questionsFor(call, criteria)));
   const { answers } = await asker.ask(state, questions);
   return new Map(
-    batch.map((call) => [
-      call.id,
-      {
-        keepCall: noulAnswer(answers, `call_${call.id}`),
-        keepResult: noulAnswer(answers, `result_${call.id}`),
-      },
-    ]),
+    batch.map((call) => {
+      // The side not asked about follows from the other: a cut leaves it as it is.
+      const keepCall = call.asks === 'result' ? 1 : noulAnswer(answers, `call_${call.id}`);
+      const keepResult = call.asks === 'call' ? keepCall : noulAnswer(answers, `result_${call.id}`);
+      return [call.id, { keepCall, keepResult }];
+    }),
   );
 }
 
@@ -601,8 +650,16 @@ function restOf(id: string, recall: boolean, fallback: string): string {
   return recall ? `; full text: recall expand ["${id}"]` : fallback;
 }
 
+/** A text this short stays whole when cut: the head and the note would take as much room. */
+const fitsHead = (chars: number, headChars: number): boolean => chars <= headChars + 120;
+
+/** A stub an earlier compaction left: `truncatedInput` has already cut this input. */
+function isCutInput(input: Record<string, unknown>): boolean {
+  return typeof input['input_head'] === 'string' && typeof input['note'] === 'string' && Object.keys(input).length === 2;
+}
+
 function truncatedResultText(text: string, isError: boolean, headChars: number, id = '', recall = false): string {
-  if (text.length <= headChars + 120) return text;
+  if (fitsHead(text.length, headChars)) return text;
   // End the head on a code point boundary: cutting a surrogate pair in half
   // would leave a lone surrogate in the rebuilt transcript.
   const cut = sliceSurrogateSafe(text, 0, headChars).length;
@@ -614,7 +671,7 @@ function truncatedResultText(text: string, isError: boolean, headChars: number, 
 
 function truncatedInput(input: Record<string, unknown>, headChars: number, id: string, recall: boolean): Record<string, unknown> {
   const json = JSON.stringify(input);
-  if (json.length <= headChars + 120) return input;
+  if (fitsHead(json.length, headChars) || isCutInput(input)) return input;
   return {
     input_head: sliceSurrogateSafe(json, 0, headChars),
     note: marker(`truncated ${json.length - headChars} chars of this tool input${restOf(id, recall, '')}`),
@@ -810,7 +867,8 @@ export function stateGroups(
 /**
  * Compacts a transcript by asking Jev, for every tool call outside the pinned
  * first and newest messages, whether the call and whether its result must
- * stay. The whole history (results omitted, fitted into `maxStateTokens`) is
+ * stay; a side too short to cut is not asked about, nor is a call with no such
+ * side left. The whole history (results omitted, fitted into `maxStateTokens`) is
  * sent as state with every batch of questions; when it cannot be fitted, the
  * calls are asked in windows (see `stateGroups`). Throws when Jev fails; the
  * caller decides whether to fall back.
@@ -835,22 +893,40 @@ export async function compact(
   const calls = collectToolCalls(messages, resolved.preserveRecentMessages);
   const candidates = calls.filter((call) => !call.pinned);
   const charsBefore = original.reduce((sum, message) => sum + messageChars(message), 0);
+  const sizes = new Map(
+    candidates.map((call) => [call.id, sizeOf(messages, call, resolved.truncateHeadChars, resolved.dropCalls)]),
+  );
+  // Only what a cut can change is worth a question. A call with none scores 0:
+  // a shorter head than `askHeadChars` may cut it, and it goes first.
+  const noQuestion = new Map<string, CallAnswer>();
+  const questioned = candidates.flatMap((call): ToolCall[] => {
+    const { cutsResult, cutsInput } = cutSides(call, resolved.askHeadChars, resolved.dropCalls);
+    if (cutsResult && cutsInput) return [call];
+    if (cutsResult) return [{ ...call, asks: 'result' }];
+    if (cutsInput) return [{ ...call, asks: 'call' }];
+    noQuestion.set(call.id, { keepCall: 0, keepResult: 0 });
+    return [];
+  });
+  const nothingToCut = (call: ToolCall): boolean => {
+    const size = sizes.get(call.id);
+    return size?.cutsResult === false && size.cutsInput === false;
+  };
 
   let fitted: { tokens: number; stage: string } = { tokens: 0, stage: '' };
   let requests = 0;
   let requestsFailed = 0;
   let requestError: string | undefined;
-  let answers = new Map<string, CallAnswer>();
+  let answers = noQuestion;
   if (candidates.length > 0 && resolved.decider === 'algorithmic') {
     answers = algorithmicAnswers(candidates, calls);
-  } else if (candidates.length > 0) {
+  } else if (questioned.length > 0) {
     const goal = resolved.instructions
       ? `${resolved.goal || goalFromMessages(messages)}\nThe user asked this compaction to keep: ${truncate(
           resolved.instructions,
           MAX_INSTRUCTION_CHARS,
         )}`
       : resolved.goal;
-    const { groups, stage } = stateGroups(messages, calls, candidates, { ...resolved, goal });
+    const { groups, stage } = stateGroups(messages, calls, questioned, { ...resolved, goal });
     fitted = { tokens: Math.max(0, ...groups.map((group) => group.state.tokens)), stage };
     const jobs = groups.flatMap((group) =>
       batchCalls(group.calls, group.state.tokens, resolved).map((batch) => ({ state: group.state.state, batch, criteria: resolved.questionCriteria })),
@@ -863,28 +939,23 @@ export async function compact(
     if (deps.signal?.aborted) throw new CompactionInterrupted();
     // Nothing answered: let the caller fall back with the reason.
     if (jobs.length > 0 && asked.failures.length === jobs.length) throw asked.failures[0];
-    answers = asked.answers;
+    answers = new Map([...noQuestion, ...asked.answers]);
     requestsFailed = asked.failures.length;
     const failure = asked.failures[0];
     if (failure !== undefined) requestError = failure instanceof Error ? failure.message : String(failure);
   }
 
-  const decisions =
+  const decided =
     resolved.keepMode === 'rank'
-      ? rankDecisions(
-          calls,
-          answers,
-          new Map(
-            candidates.map((call) => [
-              call.id,
-              sizeOf(messages, call, resolved.truncateHeadChars),
-            ]),
-          ),
-          resolved,
-        )
+      ? rankDecisions(calls, answers, sizes, resolved)
       : calls.map((call) =>
-          decideCall(call, answers.get(call.id) ?? { keepCall: 1, keepResult: 1 }, resolved),
+          decideCall(
+            call,
+            nothingToCut(call) ? { keepCall: 1, keepResult: 1 } : answers.get(call.id) ?? { keepCall: 1, keepResult: 1 },
+            resolved,
+          ),
         );
+  const decisions = decided.map((decision) => withEarlierCut(decision, sizes.get(decision.id)));
   const applied = applyDecisions(
     messages,
     decisions,

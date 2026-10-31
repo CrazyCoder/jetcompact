@@ -34,8 +34,14 @@ describe('trimHostText', () => {
     expect(out.messages[0]).toBe(messages[0]);
   });
 
+  it('takes a stopped turn for host text only when it is the whole message', () => {
+    expect(isHostText('[Request interrupted by user]')).toBe(true);
+    expect(isHostText('[Request interrupted by user for tool use]\n')).toBe(true);
+    expect(isHostText('Why did [Request interrupted by user] appear?')).toBe(false);
+  });
+
   it('covers every tagged pattern and the hook header', () => {
-    for (const { name } of HOST_TEXT_PATTERNS) {
+    for (const { name } of HOST_TEXT_PATTERNS.filter((pattern) => pattern.name !== 'request-interrupted')) {
       const body = 'x'.repeat(600);
       const text =
         name === 'hook-output-header' ? `PostToolUse hook success: ${body}` : `<${name}>${body}</${name}>`;

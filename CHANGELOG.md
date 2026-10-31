@@ -3,6 +3,28 @@
 All notable changes to this fork are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- The decision model is asked only what can change the result. A side of a call
+  too short to cut gets no question, and a call with no such side gets none at
+  all. In 39 real sessions this drops 62% of the questions, and a compaction
+  with nothing to decide sends no request. The keep budgets are spent only on
+  what a cut can change, so small calls no longer use them up.
+
+### Fixed
+
+- An input that an earlier compaction cut to a stub is left as it is, and not
+  cut again at each compaction.
+- `recall` search skips runs of encoded data (1000 characters or more that mix
+  digits and both cases). A short word such as `max` matched inside base64 by
+  chance, and that entry ranked first.
+- `<side-sessions-event>`, `<ci-monitor-event>` and a stopped turn's
+  `[Request interrupted by user]` count as host text. They no longer become user
+  turns in the digest, take up `recentTurns` or enter the goal.
+- A digest's `Referenced` list holds a URL once, not its path as well.
+
 ## [0.13.0]
 
 ### Added

@@ -141,7 +141,7 @@ const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
 
 const REFERENCE_PATTERNS: readonly RegExp[] = [
   /https?:\/\/[^\s)"'<>\]]+/g,
-  /(?:~|\.{0,2})\/?(?:[\w@.-]+\/)+[\w@.-]*\w\.\w{1,8}\b/g,
+  /(?<![\w@./-])(?:~|\.{0,2})\/?(?:[\w@.-]+\/)+[\w@.-]*\w\.\w{1,8}\b/g,
   /\b[A-Z][A-Z0-9]{0,9}-\d{1,6}\b/g,
   /(?<![\w&])#\d{2,6}\b/g,
   /\b(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b/g,

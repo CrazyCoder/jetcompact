@@ -20,6 +20,7 @@ import {
   truncate,
   type CallAnswer,
   type CallSize,
+  type CompactOptions,
   type HistoryToolCall,
   type JevAsker,
   type JevQuestions,
@@ -418,7 +419,7 @@ describe('decisions', () => {
     const options = { ...fit, keepMode: 'threshold' as const, recallNotes: true };
     const first = await compact(transcript(), fakeJev(() => 0.01), options);
     expect(isNote(first.messages[0]!)).toBe(true);
-    expect(first.messages[0]!.text).toMatch(/3 older tool calls reduced to stubs/);
+    expect(first.messages[0]!.text).toMatch(/2 tool results cut to their first characters/);
     expect(first.messages[0]!.text).toMatch(/recall expand/);
     expect(first.messages[1]!.role).toBe('assistant');
     expect(first.messages[2]!.text).toBe(transcript()[0]!.text);
@@ -631,24 +632,149 @@ describe('compact', () => {
     const output = await compact(
       messages,
       fakeJev((name) => (name.startsWith('call_') ? 0.9 : 0.1), seen),
-      { keepMode: 'threshold', preserveRecentMessages: 1, maxRequestTokens: stateTokens + 150 },
+      { keepMode: 'threshold', preserveRecentMessages: 1, maxRequestTokens: stateTokens + 110 },
     );
 
     expect(output.stats.requests).toBe(seen.length);
     expect(seen.length).toBeGreaterThan(1);
-    expect(seen.flatMap((r) => r.questions).sort()).toEqual([
-      'call_t1',
-      'call_t2',
-      'call_t3',
-      'result_t1',
-      'result_t2',
-      'result_t3',
-    ]);
+    expect(seen.flatMap((r) => r.questions).sort()).toEqual(['result_t1', 'result_t2']);
     expect(new Set(seen.map((r) => JSON.stringify(r.state))).size).toBe(1);
-    expect(output.decisions.map((d) => d.action)).toEqual(['drop_result', 'drop_result', 'drop_result']);
+    expect(output.decisions.map((d) => d.action)).toEqual(['drop_result', 'drop_result', 'keep']);
     expect(output.messages).toHaveLength(messages.length);
-    expect(output.stats).toMatchObject({ resultsDropped: 3, kept: 0, callsDropped: 0, pinned: 0 });
+    expect(output.stats).toMatchObject({ resultsDropped: 2, kept: 1, callsDropped: 0, pinned: 0 });
     expect(reductionRatio(output)).toBeGreaterThan(0);
+  });
+
+  describe('asks only what a cut can change', () => {
+    const big = 'x'.repeat(1_000);
+    const history = (input: Record<string, unknown>, text: string): Message[] => [
+      message('user', 'Fix it.'),
+      call('c1', 'Edit', input, text),
+      result('c1', text),
+      message('assistant', 'Done.'),
+      message('user', 'thanks'),
+    ];
+    const run = async (messages: Message[], score = 0.1, options: CompactOptions = {}) => {
+      const seen: Seen[] = [];
+      const output = await compact(messages, fakeJev(() => score, seen), {
+        keepMode: 'threshold',
+        preserveRecentMessages: 1,
+        ...options,
+      });
+      return { output, questions: seen.flatMap((r) => r.questions) };
+    };
+
+    it('sends no request for a call that stays the same whatever the answer', async () => {
+      const messages = history({ file_path: 'a.ts' }, 'updated');
+      const { output, questions } = await run(messages);
+      expect(questions).toEqual([]);
+      expect(output.stats.requests).toBe(0);
+      expect(output.decisions).toMatchObject([{ action: 'keep', reason: 'kept' }]);
+      expect(output.messages).toEqual(messages);
+    });
+
+    it('asks about the result alone when the input is too short to cut', async () => {
+      const { output, questions } = await run(history({ file_path: 'a.ts' }, big));
+      expect(questions).toEqual(['result_t1']);
+      expect(output.decisions).toMatchObject([{ action: 'drop_result', reason: 'result_dropped' }]);
+    });
+
+    it('asks about the call alone when the result is too short to cut, and the answer decides its input', async () => {
+      const low = await run(history({ old_string: big }, 'updated'));
+      expect(low.questions).toEqual(['call_t1']);
+      expect(low.output.decisions).toMatchObject([{ action: 'stub_call', reason: 'call_stubbed' }]);
+      const high = await run(history({ old_string: big }, 'updated'), 0.9);
+      expect(high.output.decisions).toMatchObject([{ action: 'keep', reason: 'kept' }]);
+    });
+
+    it('still asks about a small call that dropCalls can remove', async () => {
+      const { output, questions } = await run(history({ file_path: 'a.ts' }, 'updated'), 0.1, { dropCalls: true });
+      expect(questions).toEqual(['call_t1']);
+      expect(output.decisions).toMatchObject([{ action: 'drop_call' }]);
+    });
+
+    it('leaves a stub an earlier compaction made as it is', async () => {
+      const options = { maxStateTokens: 25_000, recallNotes: true };
+      const first = await run(history({ old_string: big }, 'updated'), 0.1, options);
+      const stub = first.output.messages.flatMap((m) => m.toolUses)[0]!.input;
+      expect(stub).toHaveProperty('input_head');
+      const again = await run(first.output.messages, 0.1, options);
+      expect(again.questions).toEqual([]);
+      expect(again.output.messages.flatMap((m) => m.toolUses)[0]!.input).toEqual(stub);
+      expect(again.output.decisions).toMatchObject([{ action: 'stub_call', reason: 'call_stubbed' }]);
+    });
+
+    it('still names a document an earlier compaction cut, without asking about it', async () => {
+      const doc = 'Always run the linter before a commit.\n'.repeat(40);
+      const messages = history({ file_path: 'RULES.md' }, doc);
+      messages[1]!.toolUses[0]!.tool = 'Read';
+      const options = { recallNotes: true };
+      const first = await run(messages, 0.1, options);
+      const again = await run(first.output.messages, 0.1, options);
+      expect(again.questions).toEqual([]);
+      expect(again.output.decisions).toMatchObject([{ action: 'drop_result', reason: 'result_dropped' }]);
+      expect(again.output.messages[0]!.text).toContain('`RULES.md`');
+    });
+
+    it('leaves whole a result the model kept, though an earlier compaction cut it', async () => {
+      const cut = `${'h'.repeat(300)}\n[jetcompact truncated 900 chars of this tool result; full text: recall expand ["c1"]]`;
+      const { output } = await run(history({ file_path: 'a.ts' }, cut), 0.9, { truncateHeadChars: 100 });
+      expect(output.decisions).toMatchObject([{ action: 'keep', reason: 'kept' }]);
+      expect(output.messages[2]!.toolResults![0]!.text).toBe(cut);
+    });
+
+    it('decides the questions by askHeadChars and the cut by truncateHeadChars', async () => {
+      const middling = 'y'.repeat(300);
+      const options = { keepMode: 'rank', keepResultTokens: 0, keepCallTokens: 0, truncateHeadChars: 100, askHeadChars: 300 } as const;
+      const { output, questions } = await run(history({ file_path: 'a.ts' }, middling), 0.9, options);
+      expect(questions).toEqual([]);
+      expect(output.decisions).toMatchObject([{ action: 'drop_result', reason: 'result_dropped' }]);
+      expect(output.messages[2]!.toolResults![0]!.text).toMatch(/^y{100}\n\[jetcompact truncated 200 chars/);
+      expect(resolveOptions({ truncateHeadChars: 50 }).askHeadChars).toBe(50);
+    });
+
+    it('cuts first what it did not ask about', async () => {
+      const small = 'y'.repeat(300);
+      const messages = [
+        message('user', 'Fix it.'),
+        call('c1', 'Bash', { command: 'a' }, small),
+        result('c1', small),
+        call('c2', 'Read', { file_path: 'a.ts' }, big),
+        result('c2', big),
+        message('assistant', 'Done.'),
+        message('user', 'thanks'),
+      ];
+      const options = {
+        keepMode: 'rank',
+        keepResultTokens: estimateTokens(big),
+        keepCallTokens: 0,
+        truncateHeadChars: 100,
+        askHeadChars: 300,
+      } as const;
+      const { output, questions } = await run(messages, 0.1, options);
+      expect(questions).toEqual(['result_t2']);
+      expect(output.decisions.map((d) => d.action)).toEqual(['drop_result', 'keep']);
+    });
+
+    it('spends the rank budgets only on what a cut can change', async () => {
+      const small = Array.from({ length: 30 }, (_, i) => [
+        call(`s${i}`, 'Bash', { command: `echo ${i}` }, 'y'.repeat(300)),
+        result(`s${i}`, 'y'.repeat(300)),
+      ]).flat();
+      const large = 'export const z = 1;\n'.repeat(200);
+      const messages = [
+        message('user', 'Fix it.'),
+        call('c1', 'Read', { file_path: 'a.ts' }, large),
+        result('c1', large),
+        ...small,
+        message('assistant', 'Done.'),
+        message('user', 'thanks'),
+      ];
+      const budget = { keepMode: 'rank' as const, preserveRecentMessages: 1, keepResultTokens: estimateTokens(large) };
+      const { output, questions } = await run(messages, 0.9, budget);
+      expect(questions).toEqual(['result_t1']);
+      expect(output.decisions.every((d) => d.action === 'keep')).toBe(true);
+    });
   });
 
   it('ages results an earlier compaction cut: their head goes, their note stays', async () => {
@@ -841,7 +967,7 @@ describe('windowed states when the history does not fit', () => {
     const out = await compact(messages, fakeJev(() => 0.1, seen), options);
     expect(out.stats.stateStage).toMatch(/^windows:\d+$/);
     expect(out.stats.stateTokens).toBeLessThanOrEqual(options.maxStateTokens);
-    const asked = new Set(seen.flatMap((s) => s.questions).filter((q) => q.startsWith('call_')));
+    const asked = new Set(seen.flatMap((s) => s.questions).filter((q) => q.startsWith('result_')));
     expect(asked.size).toBe(calls.filter((c) => !c.pinned).length);
     expect(out.stats.requests).toBe(seen.length);
   });

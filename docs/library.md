@@ -79,6 +79,7 @@ engine handle lose; see [hooks/README.md](../hooks/README.md).
 | `maxConcurrentRequests` | `4` | Jev requests in flight at once |
 | `instructions` | none | What the user asked this compaction to keep; added to the goal, capped at 2000 characters |
 | `truncateHeadChars` | `300` | Characters of a dropped tool result retained before its note |
+| `askHeadChars` | `truncateHeadChars` | The head that decides which sides get a question. A retry with a shorter head sets this to the first pass's head, so it asks the same questions; what they leave out scores 0 and is cut first |
 | `dropCalls` | `false` | `true` removes a no-longer-needed call with its result; `false` leaves a stub of the call |
 | `recallNotes` | `false` | For hosts that offer the recall tool. Cut notes end with `full text: recall expand ["<tool_use_id>"]` instead of "re-run the tool if needed"; a digest or summary header says recall reads the dropped turns back; and a compaction that cut anything opens the history with a note (a user message starting `[jetcompact note]` and an assistant acknowledgement) saying what was cut and to use recall before re-running a tool. The next compaction replaces the note; `withoutCompactionNote(messages)` strips it |
 | `trimHostText` | `true` | Cut host-generated blocks (`<system-reminder>`, `<task-notification>`, command echoes, hook output; never user prose) outside the pinned messages to a head plus a marker |
@@ -145,7 +146,9 @@ stage was needed, and the number of requests.
 4. For every non-pinned call Jev gets two `noul` questions: should the **call**
    stay (knowing it was made, with its input, still matters), and should the
    **result** stay verbatim (its contents are still needed and re-running the
-   tool would not do).
+   tool would not do). A question that cannot change the outcome is not asked: a
+   result or input too short to cut, or an input an earlier compaction cut. A
+   call with nothing left to decide stays as it is and spends no keep budget.
 5. Questions are split into as many requests as needed so state plus questions
    stays under `maxRequestTokens` (30k by default, under Jev's 32k request
    limit). The same full state is resent with every request; up to

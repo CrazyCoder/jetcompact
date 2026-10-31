@@ -998,6 +998,21 @@ describe('the harder cut', () => {
     expect(notices.at(-1)).toMatch(/; digest was refused \(below 25% minimum\)$/);
     expect(bodies).toHaveLength(1);
   });
+
+  it('asks Jev once when a result is too short to cut in the first pass but not in the second', async () => {
+    const bodies: string[] = [];
+    const { $ } = host(jevFetch(() => 0.9, bodies));
+    const messages = [
+      message('user', 'Fix the parser.'),
+      ...['a', 'b', 'c'].flatMap((id) => [call(id, 'Read', { file_path: `src/${id}.ts` }, ''), result(id, id.repeat(7_500))]),
+      call('m', 'Bash', { command: 'git status' }, ''),
+      result('m', 'm'.repeat(300)),
+      message('assistant', 'Read them.'),
+      message('user', 'next'),
+    ];
+    await hooks({ preserveRecentMessages: 1 })['session.compact']!($, { trigger: 'auto', messages }, async () => ({ messages: [] }));
+    expect(bodies).toHaveLength(1);
+  });
 });
 
 describe('old prose through the hook', () => {

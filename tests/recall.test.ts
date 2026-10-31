@@ -13,6 +13,37 @@ const reply = (text: string): Entry => ({ n: ++n, kind: 'reply', text });
 const call = (id: string, tool: string, input: Record<string, unknown>, result?: string, extra: Partial<Entry> = {}): Entry =>
   ({ n: ++n, kind: 'call', id, tool, input, ...(result !== undefined && { result }), ...extra }) as Entry;
 
+/** Text that passes for base64: digits and both cases, with no spaces. */
+const encoded = (chars: number) => 'aZ3xMaxQ9'.repeat(Math.ceil(chars / 9)).slice(0, chars);
+
+describe('recall query over encoded data', () => {
+  const entries = (result: string): Entry[] => {
+    n = 0;
+    return [reply('The max retry count is set in the config.'), call('toolu_blob', 'Bash', { command: 'cat img.b64' }, result)];
+  };
+
+  it('finds nothing inside a run of encoded data, on one line or wrapped', () => {
+    const wrapped = encoded(76 * 27).match(/.{76}/g)!.join('\n');
+    for (const result of [encoded(2_000), wrapped]) {
+      const out = runRecall(entries(result), { query: 'max' });
+      expect(out).toMatch(/^1 match/);
+      expect(out).toContain('#1 reply');
+    }
+  });
+
+  it('still searches the rest of that entry', () => {
+    const out = runRecall(entries(`deploy failed\n${encoded(2_000)}`), { query: 'deploy' });
+    expect(out).toContain('toolu_blob');
+    expect(out).not.toContain('aZ3x');
+  });
+
+  it('keeps long hex, identifiers and short runs searchable', () => {
+    for (const text of ['abc123max'.repeat(200), 'getMaxRetryCount'.repeat(100), encoded(500)]) {
+      expect(runRecall(entries(text), { query: 'max' })).toMatch(/^2 match/);
+    }
+  });
+});
+
 function session(): Entry[] {
   n = 0;
   return [

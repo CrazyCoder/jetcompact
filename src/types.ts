@@ -45,6 +45,8 @@ export interface ToolCall {
   isError: boolean;
   /** In the first or the newest preserved messages; never a candidate. */
   pinned: boolean;
+  /** The one question this call needs when a cut can change only one side; absent, both. */
+  asks?: 'call' | 'result';
 }
 
 export interface CallAnswer {
@@ -125,6 +127,8 @@ export interface CompactOptions {
   maxConcurrentRequests?: number;
   /** Characters of a dropped tool result to retain. Default 300. */
   truncateHeadChars?: number;
+  /** The head that decides which sides get a question. Default `truncateHeadChars`. */
+  askHeadChars?: number;
   /**
    * Whether a call Jev rates as no longer needed is removed together with its
    * result (`drop_call`). With `false` it becomes a stub (`stub_call`): the
@@ -194,6 +198,7 @@ export interface ResolvedCompactOptions {
   maxConcurrentRequests: number;
   dropCalls: boolean;
   truncateHeadChars: number;
+  askHeadChars: number;
   trimHostText: boolean;
   recallNotes: boolean;
   hostTextHeadChars: number;

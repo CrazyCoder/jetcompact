@@ -13,13 +13,15 @@ reminders, task notifications, command echoes, hook output) outside the pinned
 messages are cut to a head and a marker (`trimHostText`). Jev is sent the whole
 conversation as `state` (tool outputs replaced by a one-line note) and, for
 every tool call outside the pinned first and newest messages, two questions:
-whether the call should stay and whether its full output should stay. In the
-default `rank` mode the best-scored results are kept verbatim within
-`keepResultTokens`, then the best-scored calls keep their input and a truncated
-result within `keepCallTokens`; with `keepMode: threshold` an item is kept when
-Jev's probability reaches `keepThreshold`. A dropped result is truncated to its
-first `truncateHeadChars` characters plus a one-line note, and a dropped call
-leaves a stub (`dropCalls: false`, the default) or disappears with its result
+whether the call should stay and whether its full output should stay. A side too
+short to cut, or cut by an earlier compaction, gets no question, and a call with
+no side left to decide gets none and stays as it is. In the default `rank` mode
+the best-scored results are kept verbatim within `keepResultTokens`, then the
+best-scored calls keep their input and a truncated result within
+`keepCallTokens`; with `keepMode: threshold` an item is kept when Jev's
+probability reaches `keepThreshold`. A dropped result is truncated to its first
+`truncateHeadChars` characters plus a one-line note, and a dropped call leaves a
+stub (`dropCalls: false`, the default) or disappears with its result
 (`dropCalls: true`).
 
 The state is fitted into `maxStateTokens` in stages: tool inputs are truncated,
@@ -242,8 +244,9 @@ copies after each boundary, and keeps each call's first, uncut result:
 - `query`: keywords ranked by BM25, or a regex when the query holds regex
   characters. A regex that could backtrack without end (a quantified group, a
   back reference, more than two unbounded quantifiers) is matched as literal
-  text, and a regex that finds nothing is ranked as keywords. 5 hits per page,
-  each with the lines around its first match.
+  text, and a regex that finds nothing is ranked as keywords. Runs of encoded
+  data (1000 characters or more that mix digits and both cases) are skipped. 5
+  hits per page, each with the lines around its first match.
 - `expand`: up to 10 entries in full by `#N` or tool_use_id (a tool_use_id is
   stable; `#N` can shift as the session grows); a call shows its input and its
   result, or the file Claude Code saved a large output to (only from

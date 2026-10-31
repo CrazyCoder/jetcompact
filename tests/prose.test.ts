@@ -107,6 +107,29 @@ describe('digest', () => {
     expect(refs).not.toContain('abc');
   });
 
+  it('takes a URL once, not its path as well', () => {
+    const refs = collectReferences('https://github.com/acme/tool.git and src/hooks/a.ts, ~/.claude/x.md, C:/w/b.ts');
+    expect(refs).toContain('https://github.com/acme/tool.git');
+    expect(refs).toContain('src/hooks/a.ts');
+    expect(refs).toContain('~/.claude/x.md');
+    expect(refs).toContain('/w/b.ts');
+    expect(refs.filter((ref) => ref.includes('github.com'))).toHaveLength(1);
+  });
+
+  it('does not count host events and stopped turns as the user’s turns', () => {
+    const messages = [
+      ...history(2),
+      msg('user', '<side-sessions-event>None of the sessions you started is working now.</side-sessions-event>'),
+      msg('assistant', 'Reported.'),
+      msg('user', '[Request interrupted by user]'),
+      msg('assistant', 'Stopped.'),
+    ];
+    const digest = buildDigest(messages);
+    expect(digest).toContain('of 2 earlier turns');
+    expect(digest).not.toMatch(/user: .*(side-sessions-event|Request interrupted)/);
+    expect(splitOldProse(messages, 1)!.recent[0]!.text).toBe('prompt 2 ');
+  });
+
   it('names the recall tool in its header when recall is on, and still reads as a digest', () => {
     const recalled = buildDigest(history(3), { recall: true });
     expect(recalled.split('\n')[0]).toMatch(/; the recall tool reads them back from the transcript \(query, expand\)\]$/);

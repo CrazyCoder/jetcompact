@@ -90,6 +90,8 @@ export function compactionPlans(config: HookConfig): CompactionPlan[] {
     keepResultTokens: half(config.keepResultTokens, DEFAULT_OPTIONS.keepResultTokens),
     keepCallTokens: half(config.keepCallTokens, DEFAULT_OPTIONS.keepCallTokens),
     truncateHeadChars: config.truncateHeadChars ?? HARDER_HEAD_CHARS,
+    // The first plan's questions, so its answers are reused.
+    askHeadChars: config.truncateHeadChars ?? DEFAULT_OPTIONS.truncateHeadChars,
   };
   return [first, { label: 'harder cut', options: harder }];
 }
