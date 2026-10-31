@@ -18,19 +18,24 @@ All notable changes to this fork are documented here. The format follows
   all. In 39 real sessions this drops 62% of the questions, and a compaction
   with nothing to decide sends no request. The keep budgets are spent only on
   what a cut can change, so small calls no longer use them up.
-- The calls of a failed request are no longer guaranteed to stay; they compete
-  for the keep budgets on transcript scores (see Fixed).
+
+### Removed
+
+- The `cutIds` and `headChars` options of `foldHiddenContent`. Hidden content
+  goes back whole: nearly all of it is skill bodies, prompts typed mid-turn and
+  hook context, which recall cannot read.
 
 ### Fixed
 
 - The calls of a failed request, and a call no window can fit, are scored from
-  the transcript. A blanket score of 1 put them above every call the model
-  answered for, while a call too big for the budget was cut all the same.
+  the transcript and compete for the keep budgets, so they are no longer sure to
+  stay. A blanket score of 1 put them above every call the model answered for,
+  while a call too big for the budget was cut all the same.
 - An input that an earlier compaction cut to a stub is left as it is, and not
   cut again at each compaction.
-- `recall` search skips runs of encoded data (long base64-like runs that mix
-  digits and both cases). A short word such as `max` matched inside base64 by
-  chance, and that entry ranked first.
+- `recall` search skips long base64-like runs that mix digits and both cases. A
+  short word such as `max` matched inside base64 by chance, and that entry
+  ranked first.
 - `<side-sessions-event>`, `<ci-monitor-event>` and a stopped turn's
   `[Request interrupted by user]` count as host text. They no longer become user
   turns in the digest, take up `recentTurns` or enter the goal.

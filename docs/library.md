@@ -140,9 +140,10 @@ stage was needed, and the number of requests.
    fit (long sessions), the calls are asked in contiguous windows, halved until
    each window's state fits: a window keeps the goal, the first message, the
    pinned newest messages and its own messages in full. A call whose window
-   cannot fit even alone is not asked, so it stays. Tokens are estimated without
-   a tokenizer (a word per six letters, half a token per digit, ~one per other
-   symbol), calibrated to land a little above the counts Jev reports.
+   cannot fit even alone is not asked and is scored by `algorithmicAnswers`.
+   Tokens are estimated without a tokenizer (a word per six letters, half a
+   token per digit, ~one per other symbol), calibrated to land a little above
+   the counts Jev reports.
 4. For every non-pinned call Jev gets two `noul` questions: should the **call**
    stay (knowing it was made, with its input, still matters), and should the
    **result** stay verbatim (its contents are still needed and re-running the
@@ -156,8 +157,8 @@ stage was needed, and the number of requests.
    or 5xx is retried once after `RETRY_DELAY_MS` (pass `sleep` in the fourth
    argument of `compact`; without it the retry goes out at once). After a 401,
    403 or a request with no answer, no further request starts. The calls of a
-   request that still failed are scored by `algorithmicAnswers`, like a call
-   with no answer, and counted in `stats.requestsFailed`.
+   request that still failed are scored by `algorithmicAnswers` too, and counted
+   in `stats.requestsFailed`.
 6. Decisions per call. Jev's scores are compressed (keepCall rarely exceeds
    0.3), so the default `rank` mode ranks them instead of applying an absolute
    threshold: results are kept verbatim best-`keepResult` first within

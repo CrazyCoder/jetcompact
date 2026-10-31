@@ -244,9 +244,9 @@ copies after each boundary, and keeps each call's first, uncut result:
 - `query`: keywords ranked by BM25, or a regex when the query holds regex
   characters. A regex that could backtrack without end (a quantified group, a
   back reference, more than two unbounded quantifiers) is matched as literal
-  text, and a regex that finds nothing is ranked as keywords. Runs of encoded
-  data (long base64-like runs that mix digits and both cases) are skipped. 5
-  hits per page, each with the lines around its first match.
+  text, and a regex that finds nothing is ranked as keywords. Long base64-like
+  runs that mix digits and both cases are skipped. 5 hits per page, each with
+  the lines around its first match.
 - `expand`: up to 10 entries in full by `#N` or tool_use_id (a tool_use_id is
   stable; `#N` can shift as the session grows); a call shows its input and its
   result, or the file Claude Code saved a large output to (only from
