@@ -19,7 +19,15 @@ import {
 import { parseEnv } from '../src/dotenv.js';
 import { redactDeep } from '../src/redact.js';
 import { DEFAULT_MODEL, JevTransportError } from '../src/request.js';
-import { dropTransientReminders, foldHiddenContent, hiddenContent, type ApiMessage } from '../src/hidden.js';
+import {
+  dropTransientReminders,
+  foldHiddenContent,
+  hiddenContent,
+  takeMidTurnPrompts,
+  withPromptRows,
+  type ApiMessage,
+  type HiddenContent,
+} from '../src/hidden.js';
 import { DECISIONS_MODEL, wireFor, type JevProvider } from '../src/decisions.js';
 import {
   RECALL_DESCRIPTION,
@@ -888,6 +896,20 @@ export const register: Register = (on: On, options: PluginOptions) => {
       let refusal = '';
       let refusedBecause = '';
       const plans = compactionPlans(configured);
+      // Rows go back without handles, which costs them their hidden content, so
+      // it is read from the API form. A prompt typed mid-turn becomes a row of
+      // its own; the rest is folded back as text after each plan.
+      let rows = event.messages;
+      let hidden: HiddenContent[] = [];
+      let hiddenError: string | undefined;
+      try {
+        const view = await $.session.messages({ as: 'api' });
+        const { prompts, rest } = takeMidTurnPrompts(hiddenContent(event.messages, view as ApiMessage[]));
+        rows = withPromptRows(event.messages, prompts);
+        hidden = rest;
+      } catch (error) {
+        hiddenError = error instanceof Error ? error.message : String(error);
+      }
       // A plan that changes only the budgets asks Jev what the previous one
       // asked: answer an identical request from the first reply.
       const replies = new Map<string, Promise<{ status: number; ok: boolean; text: string }>>();
@@ -901,7 +923,7 @@ export const register: Register = (on: On, options: PluginOptions) => {
         const { result, messages } = await withCompactionDeadline(
           () =>
             compactSession(
-              event.messages,
+              rows,
               planned,
               (url, init) => {
                 const key = `${url}\n${typeof init?.body === 'string' ? init.body : ''}`;
@@ -939,25 +961,22 @@ export const register: Register = (on: On, options: PluginOptions) => {
         if (next.signal?.aborted) return interrupted();
         debugLog($, `redacted ${redacted} secret-shaped value(s) from the Jev request`);
         for (const line of decisionLogLines(result)) debugLog($, line);
-        // Rows go back without handles, which costs them their hidden content:
-        // read it from the API form and fold it back in as text, before the
-        // size guards so they measure what is returned. Transient reminders an
-        // earlier fold left in the rows go first.
+        // Hidden content goes back before the size guards, so they measure what
+        // is returned. Transient reminders an earlier fold left in the rows go first.
         const cleaned = dropTransientReminders(messages);
         let returned = cleaned.messages;
         const afterCleaning = result.stats.charsAfter - cleaned.chars;
         let measured = { ...result, stats: { ...result.stats, charsAfter: afterCleaning } };
         let hiddenNote = cleaned.chars > 0 ? `; ${cleaned.chars} chars of stale reminders dropped` : '';
-        try {
-          const view = await $.session.messages({ as: 'api' });
-          const fold = foldHiddenContent(cleaned.messages, hiddenContent(event.messages, view as ApiMessage[]));
+        if (hiddenError === undefined) {
+          const fold = foldHiddenContent(cleaned.messages, hidden);
           returned = fold.messages;
           measured = { ...result, stats: { ...result.stats, charsAfter: afterCleaning + fold.chars } };
           hiddenNote += `; hidden content: ${fold.folded} folded back (${fold.chars} chars)${
             fold.lost > 0 ? `, ${fold.lost} lost` : ''
           }`;
-        } catch (error) {
-          hiddenNote += `; hidden content not folded (${error instanceof Error ? error.message : String(error)})`;
+        } else {
+          hiddenNote += `; hidden content not folded (${hiddenError})`;
         }
         const estimate = estimatePostCompactPercent(fillBefore, measured.stats);
         const ratio = reductionRatio(measured);

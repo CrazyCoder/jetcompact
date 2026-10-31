@@ -58,6 +58,8 @@ answers 1 (keep). `buildDecisionsRequest`, `parseDecisionsResponse` and
 what the Claude Code hook uses to put back the hidden entries (skill bodies,
 prompts typed during a tool, attachments) that rows returned without their
 engine handle lose; see [hooks/README.md](../hooks/README.md).
+`takeMidTurnPrompts(hidden)` and `withPromptRows(rows, prompts)` turn the typed
+prompts into user rows ahead of a compaction.
 
 ## Options
 

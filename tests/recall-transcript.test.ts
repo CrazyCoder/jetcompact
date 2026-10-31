@@ -27,6 +27,28 @@ describe('readTranscript', () => {
     ]);
   });
 
+  it('reads a prompt typed mid-turn, but no notice or message from another session', () => {
+    const queued = (prompt: string | Block[], commandMode = 'prompt', origin?: string) =>
+      JSON.stringify({
+        type: 'attachment',
+        attachment: { type: 'queued_command', prompt, commandMode, ...(origin && { origin: { kind: origin } }) },
+      });
+    const entries = readTranscript(
+      [
+        call('t1'),
+        queued('Never touch src/generated.', 'prompt', 'human'),
+        queued([{ type: 'text', text: 'And this one.' }]),
+        queued('<task-notification>done</task-notification>', 'task-notification'),
+        queued('<cross-session-message>hi</cross-session-message>', 'prompt', 'peer'),
+      ].join('\n'),
+    );
+    expect(entries.map((entry) => (entry.kind === 'call' ? 'call' : entry.text))).toEqual([
+      'call',
+      'Never touch src/generated.',
+      'And this one.',
+    ]);
+  });
+
   it('skips the copies a compaction writes after its boundary and keeps the uncut result', () => {
     const entries = readTranscript(
       [

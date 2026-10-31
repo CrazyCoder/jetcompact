@@ -254,6 +254,48 @@ export function dropTransientReminders<M extends Message>(messages: readonly M[]
   return { messages: out, chars };
 }
 
+/** How the host hands the model a prompt typed mid-turn; the capture is the prompt. */
+const MID_TURN =
+  /(?:<system-reminder>\s*)?The user sent a new message while you were working:\n([\s\S]*?)\n\nThis is how Claude Code surfaces messages the user sends mid-turn[^\n]*(?:\s*<\/system-reminder>)?/g;
+
+/**
+ * Separates the prompts the user typed mid-turn from the rest of `hidden`.
+ * Wording the host changes leaves a prompt in `rest`, which folds it back as text.
+ */
+export function takeMidTurnPrompts(hidden: readonly HiddenContent[]): { prompts: HiddenContent[]; rest: HiddenContent[] } {
+  const prompts: HiddenContent[] = [];
+  const rest: HiddenContent[] = [];
+  for (const { anchor, text } of hidden) {
+    const left = text.replace(MID_TURN, (_, prompt: string) => {
+      prompts.push({ anchor, text: prompt });
+      return '';
+    });
+    if (left === text) rest.push({ anchor, text });
+    else if (left.trim()) rest.push({ anchor, text: left.trim() });
+  }
+  return { prompts, rest };
+}
+
+/**
+ * `rows` with each prompt as a user row of its own after its anchor, so the
+ * digest, the goal and the turn count see it as the user's. A prompt whose
+ * anchor is not among the rows goes last. The rows themselves are not copied.
+ */
+export function withPromptRows<M extends Message>(rows: readonly M[], prompts: readonly HiddenContent[]): M[] {
+  if (prompts.length === 0) return [...rows];
+  const after = new Map<number, Message[]>();
+  const indexOf = (anchor: HiddenAnchor): number =>
+    'row' in anchor
+      ? rows.indexOf(anchor.row as M)
+      : rows.findIndex((row) => row.toolResults?.some((result) => result.tool_use_id === anchor.toolUseId));
+  for (const { anchor, text } of prompts) {
+    const found = indexOf(anchor);
+    const index = found < 0 ? rows.length - 1 : found;
+    after.set(index, [...(after.get(index) ?? []), { role: 'user', text, toolUses: [] }]);
+  }
+  return rows.flatMap((row, index) => [row, ...((after.get(index) ?? []) as M[])]);
+}
+
 /**
  * Appends each piece of hidden content to its anchor in the compacted
  * `messages`: a tool result's text, or a prompt row's text. A prompt row is

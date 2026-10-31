@@ -170,13 +170,14 @@ context ahead of the first prompt (environment, CLAUDE.md, skill and tool lists)
 and the reminders Claude Code sends again after a compaction or each step (token
 countdown, output style, task-tool nudge, deferred tool list, MCP server
 instructions), and reminders about a moment that has passed (editor diagnostics,
-a file changed on disk, a silence nudge). A message you typed mid-turn and a
-background task's result are kept. Such stale reminders already in the rows,
-from an earlier compaction, are removed and counted as reduction. The outcome
-line counts what was folded back and what was dropped. In a long desktop session
-these reminders were 102k of 127k folded characters. Checked live on Claude Code
-2.1.296: without the fold a skill body was gone after compaction; with it the
-model still had it.
+a file changed on disk, a silence nudge). A background task's result is kept. A
+message you typed mid-turn goes back as a user message of its own, before the
+compaction, so the digest, Jev's goal and `recentTurns` count it. Such stale
+reminders already in the rows, from an earlier compaction, are removed and
+counted as reduction. The outcome line counts what was folded back and what was
+dropped. In a long desktop session these reminders were 102k of 127k folded
+characters. Checked live on Claude Code 2.1.296: without the fold a skill body
+was gone after compaction; with it the model still had it.
 
 The `turn.complete` hook requests compaction when the context reaches
 `compactAtPercent` of the window Claude Code compacts at, with an in-flight

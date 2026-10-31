@@ -43,6 +43,7 @@ type Row = {
   isSidechain?: boolean;
   isCompactSummary?: boolean;
   message?: { content?: unknown };
+  attachment?: { type?: string; commandMode?: string; origin?: { kind?: string }; prompt?: unknown };
 };
 
 const SAVED_TO = /Full output saved to: (.+?)\r?\n/;
@@ -61,6 +62,12 @@ function textOf(content: unknown): string {
     .map((block) => (block.type === 'text' ? String(block['text'] ?? '') : block.type === 'image' ? '[image]' : ''))
     .filter(Boolean)
     .join('\n');
+}
+
+/** A prompt the user typed while the assistant worked: the host keeps it as an attachment row. */
+function isTypedMidTurn(row: Row): boolean {
+  const { type, commandMode, origin } = row.attachment ?? {};
+  return row.type === 'attachment' && type === 'queued_command' && commandMode === 'prompt' && (origin?.kind ?? 'human') === 'human';
 }
 
 /**
@@ -136,10 +143,15 @@ export function transcriptReader({ sidechain = false, orphanResults = false } = 
       boundaryAt = at;
       return;
     }
-    if ((row.type !== 'user' && row.type !== 'assistant') || row.isMeta || row.isCompactSummary) return;
+    const typedMidTurn = isTypedMidTurn(row);
+    if (!typedMidTurn && ((row.type !== 'user' && row.type !== 'assistant') || row.isMeta || row.isCompactSummary)) return;
     if (row.isSidechain && !sidechain) return;
     timed = !Number.isNaN(at) && !Number.isNaN(boundaryAt);
     copy = at <= boundaryAt;
+    if (typedMidTurn) {
+      text('prompt', textOf(row.attachment?.prompt));
+      return;
+    }
     const content = row.message?.content;
     const blocks: Block[] = Array.isArray(content) ? (content as Block[]) : [];
     if (row.type === 'user') {

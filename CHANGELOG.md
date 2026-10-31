@@ -3,6 +3,15 @@
 All notable changes to this fork are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- A prompt typed while the assistant works is the user's message everywhere.
+  `recall` and the session index read it, and a compaction gives it a row of its
+  own, so it enters the digest, the goal and `recentTurns` instead of being lost
+  with the turn it was typed in.
+
 ## [0.14.0]
 
 ### Added

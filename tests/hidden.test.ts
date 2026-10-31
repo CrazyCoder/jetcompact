@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { dropTransientReminders, foldHiddenContent, hiddenContent, type ApiMessage } from '../src/hidden.js';
+import {
+  dropTransientReminders,
+  foldHiddenContent,
+  hiddenContent,
+  takeMidTurnPrompts,
+  withPromptRows,
+  type ApiMessage,
+} from '../src/hidden.js';
 import type { Message } from '../src/index.js';
 
 const countdown = (n: number) => `<system-reminder>\n<total_tokens>${n} tokens left</total_tokens>\n</system-reminder>`;
@@ -270,6 +277,36 @@ describe('hidden content', () => {
     expect(messages.at(-1)!.text).toBe('next prompt\n\n<system-reminder>\nContents of b.ts: attached\n</system-reminder>');
     // The input rows are left alone.
     expect(rows[2]!.toolResults![0]!.text).toBe('Launching skill: probe');
+  });
+
+  it('takes prompts typed mid-turn out of hidden content, with or without a reminder around them', () => {
+    const plain = queued('second\n\nparagraph').replace('<system-reminder>\n', '').replace('\n</system-reminder>', '');
+    const anchor = { toolUseId: 'r1' };
+    const { prompts, rest } = takeMidTurnPrompts([
+      { anchor, text: `${queued('first')}\n\nContents of b.ts` },
+      { anchor, text: plain },
+      { anchor, text: 'The user sent something else' },
+    ]);
+    expect(prompts.map((p) => p.text)).toEqual(['first', 'second\n\nparagraph']);
+    expect(rest).toEqual([
+      { anchor, text: 'Contents of b.ts' },
+      { anchor, text: 'The user sent something else' },
+    ]);
+  });
+
+  it('puts each prompt in a row of its own after its anchor, and the last row when the anchor is gone', () => {
+    const { rows } = session();
+    const out = withPromptRows(rows, [
+      { anchor: { toolUseId: 'r1' }, text: 'first' },
+      { anchor: { toolUseId: 'r1' }, text: 'second' },
+      { anchor: { row: rows[0]! }, text: 'third' },
+      { anchor: { toolUseId: 'gone' }, text: 'last' },
+    ]);
+    const at = rows.findIndex((row) => row.toolResults?.some((result) => result.tool_use_id === 'r1'));
+    expect(out[1]!.text).toBe('third');
+    expect(out.slice(at + 2, at + 4).map((row) => row.text)).toEqual(['first', 'second']);
+    expect(out.at(-1)!.text).toBe('last');
+    expect(out.filter((row) => rows.includes(row))).toEqual(rows);
   });
 
   it('folds long content back whole, and reports the characters it adds', () => {

@@ -709,7 +709,7 @@ describe('when Claude Code moves on', () => {
   it('hands back nothing when Claude Code moves on while the result is finished', async () => {
     const controller = new AbortController();
     const { $ } = host(jevFetch(() => 0.1));
-    // Esc lands after Jev answered, while the hidden content is read.
+    // Esc lands while the hidden content is read, ahead of the plans.
     const late = { ...$, session: { messages: async () => (controller.abort(), []) } };
     const next = Object.assign(async () => CORE, { signal: controller.signal });
     const out = await hooks({ preserveRecentMessages: 1, keepMode: 'threshold', dropCalls: true })['session.compact']!(
@@ -718,6 +718,33 @@ describe('when Claude Code moves on', () => {
       next,
     );
     expect(out).toEqual({ skip: 'interrupted' });
+  });
+
+  it('gives a prompt typed mid-turn a row of its own, so Jev and the result hold it', async () => {
+    const bodies: string[] = [];
+    const { $ } = host(jevFetch(() => 0.1, bodies));
+    const body = 'x'.repeat(4_000);
+    const typed = 'Never touch src/generated.';
+    const wrapped = `The user sent a new message while you were working:\n${typed}\n\nThis is how Claude Code surfaces messages the user sends mid-turn.`;
+    const view = [
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', content: body }, { type: 'text', text: wrapped }] },
+    ];
+    const typedHost = { ...$, session: { messages: async () => view } };
+    const messages = [
+      message('user', 'Fix it.'),
+      call('a', 'Read', { file_path: 'a.ts' }, body),
+      result('a', body),
+      message('assistant', 'Done.'),
+      message('user', 'next'),
+    ];
+    const out = (await hooks({ preserveRecentMessages: 1, keepMode: 'threshold' })['session.compact']!(
+      typedHost,
+      { trigger: 'manual', messages },
+      async () => CORE,
+    )) as { messages: { text: string }[] };
+    expect(JSON.parse(bodies[0]!).state.goal).toContain(typed);
+    expect(out.messages.map((m) => m.text)).toContain(typed);
+    expect(JSON.stringify(out.messages)).not.toContain('while you were working');
   });
 });
 
