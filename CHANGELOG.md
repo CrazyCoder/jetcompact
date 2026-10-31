@@ -3,7 +3,13 @@
 All notable changes to this fork are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.14.0]
+
+### Added
+
+- `askHeadChars`, a library option: the head that decides which sides get a
+  question. The harder cut uses it to ask the first pass's questions, so it
+  reuses those answers.
 
 ### Changed
 
@@ -12,6 +18,8 @@ All notable changes to this fork are documented here. The format follows
   all. In 39 real sessions this drops 62% of the questions, and a compaction
   with nothing to decide sends no request. The keep budgets are spent only on
   what a cut can change, so small calls no longer use them up.
+- The calls of a failed request are no longer guaranteed to stay; they compete
+  for the keep budgets on transcript scores (see Fixed).
 
 ### Fixed
 
