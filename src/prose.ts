@@ -74,8 +74,8 @@ function toolUseIds(messages: readonly Message[]): Set<string> {
 }
 
 /**
- * The calls still waiting for a result: those with none in the newest run of
- * assistant rows holding such calls. An older call without a result was
+ * The calls still waiting for a result: those with none since the last
+ * assistant row that made no call. An older call without a result was
  * abandoned, and must not hold the cut back for the rest of the session.
  */
 function pendingCalls(messages: readonly Message[]): Set<string> {
@@ -83,9 +83,8 @@ function pendingCalls(messages: readonly Message[]): Set<string> {
   const pending = new Set<string>();
   for (const message of [...messages].reverse()) {
     if (message.role !== 'assistant') continue;
-    const waiting = message.toolUses.filter((use) => !answered.has(use.tool_use_id));
-    if (waiting.length === 0) break;
-    for (const use of waiting) pending.add(use.tool_use_id);
+    if (message.toolUses.length === 0) break;
+    for (const use of message.toolUses) if (!answered.has(use.tool_use_id)) pending.add(use.tool_use_id);
   }
   return pending;
 }

@@ -254,23 +254,24 @@ export function dropTransientReminders<M extends Message>(messages: readonly M[]
   return { messages: out, chars };
 }
 
-/**
- * How the host hands the model a prompt typed mid-turn; the capture is the
- * prompt. The closing line ends a piece, so one quoted inside the prompt does
- * not end it.
- */
-const MID_TURN =
-  /(?:<system-reminder>\s*)?The user sent a new message while you were working:\n([\s\S]*?)\n\nThis is how Claude Code surfaces messages the user sends mid-turn[^\n]*(?:\s*<\/system-reminder>)?(?=\s*$|\n\n)/g;
+const MID_TURN_OPENING = 'The user sent a new message while you were working:\n';
+/** How the host hands the model a prompt typed mid-turn; the capture is the prompt. */
+const MID_TURN = new RegExp(
+  `(?:<system-reminder>\\s*)?${MID_TURN_OPENING}([\\s\\S]*?)\\n\\nThis is how Claude Code surfaces messages the user sends mid-turn[^\\n]*(?:\\s*</system-reminder>)?`,
+  'g',
+);
 
 /**
  * Separates the prompts the user typed mid-turn from the rest of `hidden`.
- * Wording the host changes leaves a prompt in `rest`, which folds it back as text.
+ * Wording the host changes, or a prompt quoting that wording, which cannot be
+ * told from its end, leaves the text in `rest`, which folds it back.
  */
 export function takeMidTurnPrompts(hidden: readonly HiddenContent[]): { prompts: HiddenContent[]; rest: HiddenContent[] } {
   const prompts: HiddenContent[] = [];
   const rest: HiddenContent[] = [];
   for (const { anchor, text } of hidden) {
-    const left = text.replace(MID_TURN, (_, prompt: string) => {
+    const left = text.replace(MID_TURN, (whole: string, prompt: string) => {
+      if (prompt.includes(MID_TURN_OPENING)) return whole;
       prompts.push({ anchor, text: prompt });
       return '';
     });

@@ -294,11 +294,11 @@ describe('hidden content', () => {
     ]);
   });
 
-  it('keeps a prompt whole when it quotes the words the host wraps it in', () => {
-    const typed = `Explain this:\n${queued('example only')}\nKeep the final instruction.`;
-    const { prompts, rest } = takeMidTurnPrompts([{ anchor: { toolUseId: 'r1' }, text: queued(typed) }]);
-    expect(prompts.map((p) => p.text)).toEqual([typed]);
-    expect(rest).toEqual([]);
+  it('leaves a prompt that quotes the words the host wraps it in as hidden content, whole', () => {
+    const text = queued(`Explain this:\n${queued('example only')}\n\nKeep the final instruction.`);
+    const { prompts, rest } = takeMidTurnPrompts([{ anchor: { toolUseId: 'r1' }, text }]);
+    expect(prompts).toEqual([]);
+    expect(rest.map((r) => r.text)).toEqual([text]);
   });
 
   it('puts each prompt in a row of its own after its anchor, and the last row when the anchor is gone', () => {

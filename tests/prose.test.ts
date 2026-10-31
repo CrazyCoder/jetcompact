@@ -85,6 +85,16 @@ describe('splitOldProse', () => {
     expect(split.recent).toContain(waiting);
   });
 
+  it('finds a waiting call behind a parallel call that was answered', () => {
+    const call = (id: string) =>
+      msg('assistant', '', { toolUses: [{ tool_use_id: id, tool: 'Bash', input: { command: id } }] });
+    const [waiting, answered] = [call('wait'), call('done')];
+    const prompts = [1, 2, 3].map((n) => msg('user', `typed ${n}`));
+    const done = msg('user', '', { toolResults: [{ tool_use_id: 'done', text: 'ok' }] });
+    const messages = [...history(4), msg('user', 'run them'), waiting, answered, done, ...prompts];
+    expect(splitOldProse(messages, 2)!.recent).toContain(waiting);
+  });
+
   it('does not let a call abandoned long ago hold the cut back', () => {
     const abandoned = msg('assistant', '', {
       toolUses: [{ tool_use_id: 'gone', tool: 'Bash', input: { command: 'sleep 9' } }],
