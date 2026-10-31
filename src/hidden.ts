@@ -270,13 +270,14 @@ export function takeMidTurnPrompts(hidden: readonly HiddenContent[]): { prompts:
   const prompts: HiddenContent[] = [];
   const rest: HiddenContent[] = [];
   for (const { anchor, text } of hidden) {
-    const left = text.replace(MID_TURN, (whole: string, prompt: string) => {
-      if (prompt.includes(MID_TURN_OPENING)) return whole;
-      prompts.push({ anchor, text: prompt });
-      return '';
-    });
-    if (left === text) rest.push({ anchor, text });
-    else if (left.trim()) rest.push({ anchor, text: left.trim() });
+    const found = [...text.matchAll(MID_TURN)].map((match) => match[1]!);
+    if (found.length === 0 || found.some((prompt) => prompt.includes(MID_TURN_OPENING))) {
+      rest.push({ anchor, text });
+      continue;
+    }
+    for (const prompt of found) prompts.push({ anchor, text: prompt });
+    const left = text.replace(MID_TURN, '').trim();
+    if (left) rest.push({ anchor, text: left });
   }
   return { prompts, rest };
 }
