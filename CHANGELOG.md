@@ -3,6 +3,14 @@
 All notable changes to this fork are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- A missing key no longer stops a compaction or sends it to the built-in
+  summary: it runs by the rules of `algorithmic`, and its log line and toast say
+  so. The size guards apply as usual.
+
 ## [0.14.2]
 
 ### Added

@@ -228,7 +228,7 @@ describe('compaction log file', () => {
     await hooks['session.compact']!(host, { trigger: 'auto', messages: [] }, async () => ({ messages: [] }));
     const lines = linesOf(files);
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatch(/^\S+Z auto fallback to built-in summary \(TYPESAFE_API_KEY is not configured\)$/);
+    expect(lines[0]).toMatch(/^\S+Z auto fallback to built-in summary \(.*TYPESAFE_API_KEY is not configured, decided by rules/);
   });
 
   it('logs what Claude Code refused or timed out, then lets it go on', async () => {

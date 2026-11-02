@@ -836,6 +836,7 @@ export const register: Register = (on: On, options: PluginOptions) => {
     // Every await can outlast Claude Code's patience: look again right before
     // a result goes back.
     const handBack = (messages: SessionMessage[]) => (next.signal?.aborted ? interrupted() : { messages });
+    let keylessToast = '';
     // A /compact the person typed is applied whenever it frees anything. An
     // automatic one that frees minReductionRatio but stays above targetPercent
     // is applied too: the built-in summary would cost the speed and the
@@ -846,14 +847,14 @@ export const register: Register = (on: On, options: PluginOptions) => {
         $,
         trigger,
         `kept the smallest result although ${why}, ${since} (${chosen.detail})`,
-        `compacted, ${percent(chosen.ratio)} smaller`,
+        `compacted, ${percent(chosen.ratio)} smaller${keylessToast}`,
       );
       return handBack(chosen.messages);
     };
     const giveUp = async (why: string) => {
       if (next.signal?.aborted) return interrupted();
       if (mayUseBuiltin(trigger, configured.builtinFallback)) {
-        await notify($, trigger, `fallback to built-in summary (${why})`, `built-in summary (${toastReason(why)})`);
+        await notify($, trigger, `fallback to built-in summary (${why})`, `built-in summary (${toastReason(why)}${keylessToast})`);
         if (next.signal?.aborted) return interrupted();
         try {
           // The queued marker is not an instruction for the summarizer either.
@@ -867,7 +868,7 @@ export const register: Register = (on: On, options: PluginOptions) => {
           return handBack(best.messages);
         }
       }
-      await notify($, trigger, `not compacted, no built-in summary (${why})`, `not compacted (${toastReason(why)})`);
+      await notify($, trigger, `not compacted, no built-in summary (${why})`, `not compacted (${toastReason(why)}${keylessToast})`);
       const reason = why.length > 200 ? `${why.slice(0, 200)}…` : why;
       return { skip: `${PLUGIN_ID}: ${reason}; conversation left as it is` };
     };
@@ -879,10 +880,18 @@ export const register: Register = (on: On, options: PluginOptions) => {
         ? `${refused.map((r) => `${r.label} refused (${r.why})`).join('; ')}; ${currentLabel}: ${why}`
         : why;
     try {
+      const apiKey = await getApiKey($, configured);
+      // No key: the rules need none, so the compaction still runs.
+      const keyless = !apiKey && configured.decider !== 'algorithmic';
+      const keylessNote = keyless
+        ? `; ${wireFor(configured.provider).keyName} is not configured, decided by rules`
+        : '';
+      if (keyless) keylessToast = ', no key: decided by rules';
       // `/compact <instructions>`: what the user wants kept, for Jev's goal.
       const config = {
         ...configured,
-        apiKey: await getApiKey($, configured),
+        apiKey,
+        ...(keyless ? { decider: 'algorithmic' as const } : {}),
         instructions: queued ? undefined : event.instructions,
       };
       let fillBefore: ContextFill = {};
@@ -967,7 +976,7 @@ export const register: Register = (on: On, options: PluginOptions) => {
         let returned = cleaned.messages;
         const afterCleaning = result.stats.charsAfter - cleaned.chars;
         let measured = { ...result, stats: { ...result.stats, charsAfter: afterCleaning } };
-        let hiddenNote = cleaned.chars > 0 ? `; ${cleaned.chars} chars of stale reminders dropped` : '';
+        let hiddenNote = `${keylessNote}${cleaned.chars > 0 ? `; ${cleaned.chars} chars of stale reminders dropped` : ''}`;
         if (hiddenError === undefined) {
           const fold = foldHiddenContent(cleaned.messages, hidden);
           returned = fold.messages;
@@ -993,7 +1002,7 @@ export const register: Register = (on: On, options: PluginOptions) => {
             $,
             trigger,
             `kept ${messages.length}/${event.messages.length} messages, no summary (${summarize(measured)})${hiddenNote}${retried}`,
-            `compacted, ${percent(reductionRatio(measured))} smaller (${messages.length}/${event.messages.length} messages)`,
+            `compacted, ${percent(reductionRatio(measured))} smaller (${messages.length}/${event.messages.length} messages${keylessToast})`,
           );
           return handBack(withoutHandles(returned));
         }

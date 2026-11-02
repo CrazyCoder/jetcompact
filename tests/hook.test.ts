@@ -431,7 +431,7 @@ describe('compactSession', () => {
     expect(urls).toEqual(['https://api.typesafe.ai/v1/systemone']);
   });
 
-  it('throws on a missing key and on failed requests so the hook falls back', async () => {
+  it('throws on a missing key and on failed requests', async () => {
     const config = resolveHookConfig({ keepMode: 'threshold', preserveRecentMessages: 1 });
     await expect(compactSession(transcript(), config, jevFetch(() => 0))).rejects.toThrow(/TYPESAFE_API_KEY/);
     await expect(
@@ -665,21 +665,55 @@ describe('who asked for the compaction', () => {
 });
 
 describe('provider: algorithmic', () => {
-  it('compacts with no key and no request', async () => {
+  /** A `/compact` on a host with no key, counting Jev requests and built-in summaries. */
+  async function compactKeyless(options: Record<string, unknown>) {
     let requests = 0;
-    const { $, notices } = host((async () => {
+    let delegated = 0;
+    const { $, notices, toasts } = host((async () => {
       requests += 1;
       return { status: 500, ok: false, text: 'no' };
     }) as never);
     $.env.get = async () => undefined;
-    const out = (await hooks({ provider: 'algorithmic', keepMode: 'threshold', preserveRecentMessages: 1 })['session.compact']!(
+    const out = (await hooks({ ...options, keepMode: 'threshold', preserveRecentMessages: 1 })['session.compact']!(
       $,
       { trigger: 'manual', messages: transcript() },
-      async () => CORE,
-    )) as { messages?: unknown[] };
+      async () => {
+        delegated += 1;
+        return CORE;
+      },
+    )) as { messages?: unknown[]; skip?: string };
+    return { out, requests, delegated, notices, toasts };
+  }
+
+  it('compacts with no key and no request', async () => {
+    const { out, requests, notices } = await compactKeyless({ provider: 'algorithmic' });
     expect(out.messages).toBeDefined();
     expect(requests).toBe(0);
     expect(notices.at(-1)).toMatch(/ in 0 request\(s\)/);
+  });
+
+  it.each([
+    [{}, 'TYPESAFE_API_KEY'],
+    [{ provider: 'openai' }, 'OPENAI_API_KEY'],
+  ])('takes over when the provider has no key: %j', async (options, keyName) => {
+    const { out, requests, delegated, notices, toasts } = await compactKeyless(options);
+    expect(out.skip).toBeUndefined();
+    expect(out.messages).toBeDefined();
+    expect(requests).toBe(0);
+    expect(delegated).toBe(0);
+    expect(notices.at(-1)).toContain(`${keyName} is not configured, decided by rules`);
+    expect(toasts.at(-1)).toContain('no key: decided by rules');
+  });
+
+  it('says the rules ran when they free nothing', async () => {
+    const { $, toasts } = host((async () => ({ status: 500, ok: false, text: 'no' })) as never);
+    $.env.get = async () => undefined;
+    const out = (await hooks({})['session.compact']!($, { trigger: 'manual', messages: [] }, async () => CORE)) as {
+      skip?: string;
+    };
+    expect(out.skip).toBeDefined();
+    expect(toasts.at(-1)).toContain('not compacted');
+    expect(toasts.at(-1)).toContain('no key: decided by rules');
   });
 });
 

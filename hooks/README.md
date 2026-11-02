@@ -118,7 +118,10 @@ digest, the guards) works as with a model.
 `https://openrouter.ai/api/alpha/decisions` with `model` left at `jev-latest` to
 reach the same Jev model through OpenRouter. `envFile` is read only when nothing
 earlier held a key, and a file that cannot be read is not an error: the key is
-simply not there, and the hook falls back as it would.
+simply not there.
+
+With no key anywhere, the compaction runs as `provider: "algorithmic"` would,
+and its log line and toast say so.
 
 Every option except `apiKey`, `baseUrl`, `envFile`, `compactAtPercent`,
 `minReductionRatio`, `compactionTimeoutMs`, `builtinFallback`, `targetPercent`
@@ -134,30 +137,30 @@ a headless session carries the args `automatic, from jetcompact`, which mark it
 as automatic: the guards apply, and the marker is not passed to Jev or the
 built-in summarizer as an instruction.
 
-If Jev fails, the response is malformed, the key is unavailable, the history
-cannot be fitted into the state budget, or an automatic compaction is refused by
-the guards, what happens next depends on the compaction's `trigger`. With
-`builtinFallback` at `auto`, only Claude Code's own compaction (`auto`: its
-threshold, or a prompt too long, when the conversation has to shrink) and the
-plugin's queued one log a fallback and delegate to Claude Code's built-in
-compaction; `/compact` (`manual`), another plugin's request (`plugin`) and
-`precompute` answer `{ skip }` instead, so the conversation stays as it is and
-Claude Code shows why. `always` delegates on every trigger; `never` on none.
-When the built-in summary itself fails, the hook installs its own result if that
-freed anything. When Claude Code moves on (Esc, another hook settling first),
-the in-flight request is abandoned and nothing is returned or delegated; the
-signal is checked again right before a result goes back. When the hook runs over
-Claude Code's time budget, or Claude Code refuses its result, that is logged and
-the built-in summary runs only where `builtinFallback` allows it. The outcome is
-shown as a one-line toast. The debug log (`$.ui.log` with `to: 'debug'`, nothing
-in the transcript) gets the reduction, per-reason counts, state size and request
-count, and a per-call `decisions:` line with both probabilities for diagnosis.
-The debug log exists only under `claude --debug`, so each outcome is also
-appended as one timestamped line, labelled with the trigger, to
-`~/.claude/jetcompact/compactions.log` (under `CLAUDE_CONFIG_DIR` when set; the
-newest 200 lines are kept), together with each `/compact` the hook queues in a
-headless session. Text typed after `/compact` goes into Jev's goal as what the
-user asked the compaction to keep (the first 2000 characters).
+If Jev fails, the response is malformed, the history cannot be fitted into the
+state budget, or an automatic compaction is refused by the guards, what happens
+next depends on the compaction's `trigger`. With `builtinFallback` at `auto`,
+only Claude Code's own compaction (`auto`: its threshold, or a prompt too long,
+when the conversation has to shrink) and the plugin's queued one log a fallback
+and delegate to Claude Code's built-in compaction; `/compact` (`manual`),
+another plugin's request (`plugin`) and `precompute` answer `{ skip }` instead,
+so the conversation stays as it is and Claude Code shows why. `always` delegates
+on every trigger; `never` on none. When the built-in summary itself fails, the
+hook installs its own result if that freed anything. When Claude Code moves on
+(Esc, another hook settling first), the in-flight request is abandoned and
+nothing is returned or delegated; the signal is checked again right before a
+result goes back. When the hook runs over Claude Code's time budget, or Claude
+Code refuses its result, that is logged and the built-in summary runs only where
+`builtinFallback` allows it. The outcome is shown as a one-line toast. The debug
+log (`$.ui.log` with `to: 'debug'`, nothing in the transcript) gets the
+reduction, per-reason counts, state size and request count, and a per-call
+`decisions:` line with both probabilities for diagnosis. The debug log exists
+only under `claude --debug`, so each outcome is also appended as one timestamped
+line, labelled with the trigger, to `~/.claude/jetcompact/compactions.log`
+(under `CLAUDE_CONFIG_DIR` when set; the newest 200 lines are kept), together
+with each `/compact` the hook queues in a headless session. Text typed after
+`/compact` goes into Jev's goal as what the user asked the compaction to keep
+(the first 2000 characters).
 
 Kept messages go back without their engine handle, so `--resume` starts at the
 compaction (#89). A message without its handle loses the hidden entries Claude
