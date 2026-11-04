@@ -135,16 +135,41 @@ describe('Jev transport through the hook', () => {
   });
 
   it('measures the size guards after the fold', async () => {
-    const hooks = registered({ preserveRecentMessages: 1, minReductionRatio: 0 });
+    const hooks = registered({ preserveRecentMessages: 1, minReductionRatio: 0.01 });
     const skill = skillSession('BODY');
     const messages = [...skill.rows, { role: 'assistant', text: 'Done.', toolUses: [] }];
     const api = [
       ...skill.api,
       { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] },
     ];
-    // Jev keeps everything (0% before the fold); the folded body makes it negative.
+    // Jev keeps everything; the body folded back was there before too, so the reduction is 0%, not negative.
     const out = await hooks['session.compact']!(jevHost(0.99, api), { trigger: 'manual', messages }, async () => ({}));
-    expect(out).toEqual({ skip: expect.stringMatching(/below 0% minimum: -\d+% reduction.*hidden content: 1 folded back \(\d+ chars\)/) });
+    expect(out).toEqual({
+      skip: expect.stringMatching(/below 1% minimum: 0% reduction.*hidden content: 1 folded back \((\d+) of \1 chars\)/),
+    });
+  });
+
+  it('compacts a session that loaded one skill body many times', async () => {
+    const body = `Base directory for this skill: /x\n\n${'step '.repeat(4000)}done.`;
+    const runs = ['s', 't', 'u'].map((id) => {
+      const run = skillSession(body);
+      const withId = (value: unknown) => JSON.parse(JSON.stringify(value).replace(/"s"/g, `"${id}"`));
+      return { rows: withId(run.rows), api: withId(run.api) };
+    });
+    const messages = [...runs.flatMap((run) => run.rows), { role: 'assistant', text: 'Done.', toolUses: [] }];
+    const api = [...runs.flatMap((run) => run.api), { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] }];
+    // Jev keeps every call: the reduction comes from the two earlier copies alone.
+    const out = (await registered({ preserveRecentMessages: 1 })['session.compact']!(
+      jevHost(0.99, api),
+      { trigger: 'manual', messages },
+      async () => ({}),
+    )) as { messages?: { toolResults?: { tool_use_id: string; text: string }[] }[] };
+    const results = (out.messages ?? []).flatMap((message) => message.toolResults ?? []);
+    expect(results.map((result) => [result.tool_use_id, result.text.includes(body)])).toEqual([
+      ['s', false],
+      ['t', false],
+      ['u', true],
+    ]);
   });
 
   it('logs a plugin-triggered compaction that ran out of time', async () => {

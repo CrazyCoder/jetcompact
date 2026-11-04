@@ -10,6 +10,16 @@ All notable changes to this fork are documented here. The format follows
 - A missing key no longer stops a compaction or sends it to the built-in
   summary: it runs by the rules of `algorithmic`, and its log line and toast say
   so. The size guards apply as usual.
+- Repeated hidden content goes back whole once, at its last copy: each earlier
+  copy, such as the body of a skill that a loop runs on every turn, becomes a
+  placeholder that points to it. A session that ran one skill many times
+  compacts again.
+
+### Fixed
+
+- The reduction counts hidden content on both sides. It was added to the size
+  after compaction but not to the size before, so a session with large skill
+  bodies showed a negative reduction (-836%) and was never compacted.
 
 ## [0.14.2]
 

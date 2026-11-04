@@ -980,10 +980,18 @@ export const register: Register = (on: On, options: PluginOptions) => {
         if (hiddenError === undefined) {
           const fold = foldHiddenContent(cleaned.messages, hidden);
           returned = fold.messages;
-          measured = { ...result, stats: { ...result.stats, charsAfter: afterCleaning + fold.chars } };
-          hiddenNote += `; hidden content: ${fold.folded} folded back (${fold.chars} chars)${
-            fold.lost > 0 ? `, ${fold.lost} lost` : ''
-          }`;
+          // The rows hold no hidden content, so both sides of the ratio count it.
+          measured = {
+            ...result,
+            stats: {
+              ...result.stats,
+              charsBefore: result.stats.charsBefore + fold.hiddenChars,
+              charsAfter: afterCleaning + fold.chars,
+            },
+          };
+          hiddenNote += `; hidden content: ${fold.folded} folded back (${fold.chars} of ${fold.hiddenChars} chars)${
+            fold.deduped > 0 ? `, ${fold.deduped} repeated copies omitted` : ''
+          }${fold.lost > 0 ? `, ${fold.lost} lost` : ''}`;
         } else {
           hiddenNote += `; hidden content not folded (${hiddenError})`;
         }

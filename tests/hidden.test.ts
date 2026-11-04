@@ -331,6 +331,29 @@ describe('hidden content', () => {
     expect(out.chars).toBe(after - before);
   });
 
+  it('folds the last copy of repeated content whole and points to it from the earlier copies', () => {
+    const { rows } = session();
+    const body = `Base directory for this skill: /x\n\n${'skill body '.repeat(200)}`;
+    const hidden = [
+      { anchor: { toolUseId: 's1' }, text: body },
+      { anchor: { toolUseId: 'r1' }, text: body },
+      { anchor: { toolUseId: 'i1' }, text: body },
+    ];
+    const out = foldHiddenContent(rows, hidden);
+    const textOf = (id: string) => out.messages.flatMap((m) => m.toolResults ?? []).find((r) => r.tool_use_id === id)!.text;
+    expect(textOf('i1')).toBe(`image file\n\n${body}`);
+    for (const id of ['s1', 'r1']) {
+      expect(textOf(id)).not.toContain('skill body');
+      expect(textOf(id)).toContain('[jetcompact: same text as a later copy');
+    }
+    expect(out.folded).toBe(3);
+    expect(out.deduped).toBe(2);
+    // hiddenChars is what folding every piece whole would add; chars is what was added.
+    expect(out.hiddenChars).toBe(3 * (2 + body.length));
+    const stub = textOf('s1').slice(textOf('s1').lastIndexOf('\n\n') + 2);
+    expect(out.chars).toBe(2 + body.length + 2 * (2 + stub.length));
+  });
+
   it('moves content whose result was removed to the nearest earlier kept result, and counts what has nowhere to go', () => {
     const { rows, api } = session();
     const hidden = hiddenContent(rows, api);

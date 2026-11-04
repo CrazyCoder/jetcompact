@@ -168,9 +168,12 @@ Code keeps beside it: a skill's body, a prompt typed while a tool ran, file
 attachments, images and deferred tools inside results. The hook reads them from
 the conversation's API form (`$.session.messages({ as: 'api' })`) and folds them
 back as text after the tool result or prompt they followed; images and
-ToolSearch-loaded tools become one-line placeholders. Left out: the session
-context ahead of the first prompt (environment, CLAUDE.md, skill and tool lists)
-and the reminders Claude Code sends again after a compaction or each step (token
+ToolSearch-loaded tools become one-line placeholders. Content that repeats, such
+as the body of a skill a loop runs on every turn, goes back whole at its last
+copy, and each earlier copy becomes a placeholder. The size guards count the
+hidden content in the size before compaction too. Left out: the session context
+ahead of the first prompt (environment, CLAUDE.md, skill and tool lists) and the
+reminders Claude Code sends again after a compaction or each step (token
 countdown, output style, task-tool nudge, deferred tool list, MCP server
 instructions), and reminders about a moment that has passed (editor diagnostics,
 a file changed on disk, a silence nudge). A background task's result is kept. A

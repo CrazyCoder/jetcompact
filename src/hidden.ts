@@ -52,6 +52,9 @@ const TOOL_LOADED = 'Tool loaded.';
 
 const PIECE_SEPARATOR = '\n\n';
 
+/** What an earlier copy of repeated hidden content is folded back as. */
+const LATER_COPY = placeholder('same text as a later copy below, omitted here');
+
 function isTransient(text: string): boolean {
   const inner = REMINDER.exec(text.trim())?.[1];
   return inner !== undefined && TRANSIENT.some((pattern) => pattern.test(inner));
@@ -309,15 +312,23 @@ export function withPromptRows<M extends Message>(rows: readonly M[], prompts: r
  * the nearest earlier result that was placed; with none, it is counted lost.
  * Content goes back whole, even after a cut result: skill bodies, prompts typed
  * mid-turn and hook context make up nearly all of it, and recall cannot read
- * them. `chars` is what the fold added. Messages that change are copies; the
- * input is not modified.
+ * them. Repeated content, such as the body of a skill run on every turn of a
+ * loop, goes back whole once, at its last copy; each earlier copy becomes a
+ * placeholder that points to it (`deduped` counts them). `chars` is what the
+ * fold added, and `hiddenChars` what folding every piece whole would add, the
+ * size the hidden content had before compaction. Messages that change are
+ * copies; the input is not modified.
  */
 export function foldHiddenContent<M extends Message>(
   messages: readonly M[],
   hidden: readonly HiddenContent[],
-): { messages: M[]; folded: number; lost: number; chars: number } {
+): { messages: M[]; folded: number; lost: number; deduped: number; chars: number; hiddenChars: number } {
   const out = [...messages];
   let chars = 0;
+  const lastCopy = new Map<string, number>();
+  hidden.forEach(({ text }, index) => lastCopy.set(text, index));
+  let deduped = 0;
+  const hiddenChars = hidden.reduce((sum, { text }) => sum + PIECE_SEPARATOR.length + text.length, 0);
   const where = new Map<string, number>();
   out.forEach((message, index) => {
     for (const result of message.toolResults ?? []) where.set(result.tool_use_id, index);
@@ -347,7 +358,13 @@ export function foldHiddenContent<M extends Message>(
   let folded = 0;
   let lost = 0;
   let lastResult: { index: number; id: string } | undefined;
-  for (const { anchor, text } of hidden) {
+  for (const [index, piece] of hidden.entries()) {
+    const { anchor } = piece;
+    let { text } = piece;
+    if (lastCopy.get(text) !== index && text.length > LATER_COPY.length) {
+      text = LATER_COPY;
+      deduped += 1;
+    }
     if ('toolUseId' in anchor && where.has(anchor.toolUseId)) {
       lastResult = { index: where.get(anchor.toolUseId)!, id: anchor.toolUseId };
       appendToResult(lastResult.index, lastResult.id, text);
@@ -369,5 +386,5 @@ export function foldHiddenContent<M extends Message>(
       folded += 1;
     } else lost += 1;
   }
-  return { messages: out, folded, lost, chars };
+  return { messages: out, folded, lost, deduped, chars, hiddenChars };
 }
