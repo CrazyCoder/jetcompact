@@ -5,6 +5,8 @@ All notable changes to this fork are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.15.0]
+
 ### Changed
 
 - A missing key no longer stops a compaction or sends it to the built-in
