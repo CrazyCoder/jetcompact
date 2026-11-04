@@ -354,6 +354,56 @@ describe('hidden content', () => {
     expect(out.chars).toBe(2 + body.length + 2 * (2 + stub.length));
   });
 
+  it('keeps repeated content whole at a copy that is placed, not at one that is lost', () => {
+    const body = 'x'.repeat(1000);
+    const prompt = (text: string): Message => ({ role: 'user', text, toolUses: [] });
+    const [p, q] = [prompt('first'), prompt('second')];
+    const out = foldHiddenContent([p], [
+      { anchor: { row: p }, text: body },
+      { anchor: { row: q }, text: body },
+    ]);
+    expect(out.messages[0]!.text).toBe(`first\n\n${body}`);
+    expect([out.folded, out.lost, out.deduped]).toEqual([1, 1, 0]);
+  });
+
+  it('keeps repeated content whole at the copy placed lowest', () => {
+    const body = 'x'.repeat(1000);
+    const result: Message = {
+      role: 'user',
+      text: '',
+      toolUses: [],
+      toolResults: [{ tool_use_id: 'r', text: 'result', isError: false }],
+    };
+    const p: Message = { role: 'user', text: 'prompt', toolUses: [] };
+    // The last copy's result is gone: it falls back to `r`, above the prompt row.
+    const out = foldHiddenContent([result, p], [
+      { anchor: { toolUseId: 'r' }, text: 'seed' },
+      { anchor: { row: p }, text: body },
+      { anchor: { toolUseId: 'removed' }, text: body },
+    ]);
+    expect(out.messages[1]!.text).toBe(`prompt\n\n${body}`);
+    expect(out.messages[0]!.toolResults![0]!.text).not.toContain(body);
+    expect(out.deduped).toBe(1);
+  });
+
+  it('folds repeated content no longer than the placeholder whole every time', () => {
+    const { rows } = session();
+    const stubLength = (() => {
+      const out = foldHiddenContent(rows, [
+        { anchor: { toolUseId: 's1' }, text: 'y'.repeat(500) },
+        { anchor: { toolUseId: 'r1' }, text: 'y'.repeat(500) },
+      ]);
+      const text = out.messages.flatMap((m) => m.toolResults ?? []).find((r) => r.tool_use_id === 's1')!.text;
+      return text.length - text.lastIndexOf('\n\n') - 2;
+    })();
+    const dedupedAt = (length: number) =>
+      foldHiddenContent(rows, [
+        { anchor: { toolUseId: 's1' }, text: 'z'.repeat(length) },
+        { anchor: { toolUseId: 'r1' }, text: 'z'.repeat(length) },
+      ]).deduped;
+    expect([dedupedAt(stubLength - 1), dedupedAt(stubLength), dedupedAt(stubLength + 1)]).toEqual([0, 0, 1]);
+  });
+
   it('moves content whose result was removed to the nearest earlier kept result, and counts what has nowhere to go', () => {
     const { rows, api } = session();
     const hidden = hiddenContent(rows, api);

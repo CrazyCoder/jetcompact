@@ -312,12 +312,14 @@ export function withPromptRows<M extends Message>(rows: readonly M[], prompts: r
  * the nearest earlier result that was placed; with none, it is counted lost.
  * Content goes back whole, even after a cut result: skill bodies, prompts typed
  * mid-turn and hook context make up nearly all of it, and recall cannot read
- * them. Repeated content, such as the body of a skill run on every turn of a
- * loop, goes back whole once, at its last copy; each earlier copy becomes a
- * placeholder that points to it (`deduped` counts them). `chars` is what the
- * fold added, and `hiddenChars` what folding every piece whole would add, the
- * size the hidden content had before compaction. Messages that change are
- * copies; the input is not modified.
+ * them. Repeated content longer than a placeholder, such as the body of a skill
+ * run on every turn of a loop, goes back whole once, at the copy placed lowest;
+ * each other placed copy becomes a placeholder that points down to it
+ * (`deduped` counts them). The copy is chosen after placement, so a copy that
+ * is lost never stands in for one that is placed. `chars` is what the fold
+ * added, and `hiddenChars` what folding every piece whole would add, the size
+ * the hidden content had before compaction. Messages that change are copies;
+ * the input is not modified.
  */
 export function foldHiddenContent<M extends Message>(
   messages: readonly M[],
@@ -325,8 +327,6 @@ export function foldHiddenContent<M extends Message>(
 ): { messages: M[]; folded: number; lost: number; deduped: number; chars: number; hiddenChars: number } {
   const out = [...messages];
   let chars = 0;
-  const lastCopy = new Map<string, number>();
-  hidden.forEach(({ text }, index) => lastCopy.set(text, index));
   let deduped = 0;
   const hiddenChars = hidden.reduce((sum, { text }) => sum + PIECE_SEPARATOR.length + text.length, 0);
   const where = new Map<string, number>();
@@ -355,36 +355,63 @@ export function foldHiddenContent<M extends Message>(
     };
   };
 
-  let folded = 0;
-  let lost = 0;
-  let lastResult: { index: number; id: string } | undefined;
-  for (const [index, piece] of hidden.entries()) {
-    const { anchor } = piece;
-    let { text } = piece;
-    if (lastCopy.get(text) !== index && text.length > LATER_COPY.length) {
-      text = LATER_COPY;
-      deduped += 1;
-    }
+  // Where each piece goes: a result (`id`) or a prompt row, or nowhere.
+  type Target = { index: number; id?: string };
+  const targets: (Target | undefined)[] = [];
+  let lastResult: Target | undefined;
+  for (const { anchor } of hidden) {
     if ('toolUseId' in anchor && where.has(anchor.toolUseId)) {
       lastResult = { index: where.get(anchor.toolUseId)!, id: anchor.toolUseId };
-      appendToResult(lastResult.index, lastResult.id, text);
-      folded += 1;
+      targets.push(lastResult);
       continue;
     }
     if ('row' in anchor) {
       const index = findRow(anchor.row);
       if (index >= 0) {
         usedRows.add(index);
-        chars += PIECE_SEPARATOR.length + text.length;
-        out[index] = { ...out[index]!, text: `${out[index]!.text}${PIECE_SEPARATOR}${text}` };
-        folded += 1;
+        targets.push({ index });
         continue;
       }
     }
-    if (lastResult) {
-      appendToResult(lastResult.index, lastResult.id, text);
-      folded += 1;
-    } else lost += 1;
+    targets.push(lastResult);
+  }
+
+  // The copy of each repeated text placed lowest: last message, last result in
+  // it, last piece appended there.
+  const rank = (piece: number): [number, number, number] => {
+    const target = targets[piece]!;
+    const results = out[target.index]!.toolResults ?? [];
+    return [target.index, results.findIndex((result) => result.tool_use_id === target.id), piece];
+  };
+  const below = (a: number, b: number): boolean => {
+    const [ra, rb] = [rank(a), rank(b)];
+    return ra[0] !== rb[0] ? ra[0] > rb[0] : ra[1] !== rb[1] ? ra[1] > rb[1] : ra[2] > rb[2];
+  };
+  const kept = new Map<string, number>();
+  hidden.forEach(({ text }, piece) => {
+    if (!targets[piece] || text.length <= LATER_COPY.length) return;
+    const other = kept.get(text);
+    if (other === undefined || below(piece, other)) kept.set(text, piece);
+  });
+
+  let folded = 0;
+  let lost = 0;
+  for (const [piece, { text: whole }] of hidden.entries()) {
+    const target = targets[piece];
+    if (!target) {
+      lost += 1;
+      continue;
+    }
+    let text = whole;
+    if (kept.has(whole) && kept.get(whole) !== piece) {
+      text = LATER_COPY;
+      deduped += 1;
+    }
+    if (target.id === undefined) {
+      chars += PIECE_SEPARATOR.length + text.length;
+      out[target.index] = { ...out[target.index]!, text: `${out[target.index]!.text}${PIECE_SEPARATOR}${text}` };
+    } else appendToResult(target.index, target.id, text);
+    folded += 1;
   }
   return { messages: out, folded, lost, deduped, chars, hiddenChars };
 }

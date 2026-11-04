@@ -168,22 +168,23 @@ Code keeps beside it: a skill's body, a prompt typed while a tool ran, file
 attachments, images and deferred tools inside results. The hook reads them from
 the conversation's API form (`$.session.messages({ as: 'api' })`) and folds them
 back as text after the tool result or prompt they followed; images and
-ToolSearch-loaded tools become one-line placeholders. Content that repeats, such
-as the body of a skill a loop runs on every turn, goes back whole at its last
-copy, and each earlier copy becomes a placeholder. The size guards count the
-hidden content in the size before compaction too. Left out: the session context
-ahead of the first prompt (environment, CLAUDE.md, skill and tool lists) and the
-reminders Claude Code sends again after a compaction or each step (token
-countdown, output style, task-tool nudge, deferred tool list, MCP server
-instructions), and reminders about a moment that has passed (editor diagnostics,
-a file changed on disk, a silence nudge). A background task's result is kept. A
-message you typed mid-turn goes back as a user message of its own, before the
-compaction, so the digest, Jev's goal and `recentTurns` count it. Such stale
-reminders already in the rows, from an earlier compaction, are removed and
-counted as reduction. The outcome line counts what was folded back and what was
-dropped. In a long desktop session these reminders were 102k of 127k folded
-characters. Checked live on Claude Code 2.1.296: without the fold a skill body
-was gone after compaction; with it the model still had it.
+ToolSearch-loaded tools become one-line placeholders. Content that repeats and
+is longer than a placeholder, such as the body of a skill a loop runs on every
+turn, goes back whole at the copy placed lowest, and each other copy becomes a
+placeholder. The size guards count the hidden content in the size before
+compaction too. Left out: the session context ahead of the first prompt
+(environment, CLAUDE.md, skill and tool lists) and the reminders Claude Code
+sends again after a compaction or each step (token countdown, output style,
+task-tool nudge, deferred tool list, MCP server instructions), and reminders
+about a moment that has passed (editor diagnostics, a file changed on disk, a
+silence nudge). A background task's result is kept. A message you typed mid-turn
+goes back as a user message of its own, before the compaction, so the digest,
+Jev's goal and `recentTurns` count it. Such stale reminders already in the rows,
+from an earlier compaction, are removed and counted as reduction. The outcome
+line counts what was folded back and what was dropped. In a long desktop session
+these reminders were 102k of 127k folded characters. Checked live on Claude Code
+2.1.296: without the fold a skill body was gone after compaction; with it the
+model still had it.
 
 The `turn.complete` hook requests compaction when the context reaches
 `compactAtPercent` of the window Claude Code compacts at, with an in-flight
